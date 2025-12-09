@@ -1,0 +1,108 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nolongerevil-server"
+version = "1.0.0"
+description = "Self-hosted Nest thermostat server - Python implementation"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "NoLongerEvil" }
+]
+keywords = ["nest", "thermostat", "smart-home", "mqtt", "home-assistant"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+]
+dependencies = [
+    "aiohttp>=3.9.0",
+    "aiosqlite>=0.19.0",
+    "aiomqtt>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "pytest-aiohttp>=1.0.5",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+    "pre-commit>=3.6.0",
+]
+
+[project.scripts]
+nolongerevil-server = "nolongerevil.main:main"
+
+[project.urls]
+Homepage = "https://github.com/nolongerevil/nolongerevil-selfhosted"
+Repository = "https://github.com/nolongerevil/nolongerevil-selfhosted"
+Issues = "https://github.com/nolongerevil/nolongerevil-selfhosted/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nolongerevil"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --cov=nolongerevil --cov-report=term-missing"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+    "B904",   # raise without from inside except
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nolongerevil"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_return_any = false
+warn_unused_ignores = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+# Relax overly strict settings that cause false positives
+# with aiohttp decorators and async patterns
+no_implicit_optional = true
+strict_equality = true
+warn_redundant_casts = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["aiomqtt.*", "aiosqlite.*"]
+ignore_missing_imports = true
