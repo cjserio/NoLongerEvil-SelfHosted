@@ -212,21 +212,21 @@ async def run_server() -> None:
     # Start servers
     proxy_site = web.TCPSite(
         proxy_runner,
-        "0.0.0.0",
+        settings.proxy_host,
         settings.proxy_port,
         ssl_context=ssl_context,
     )
     control_site = web.TCPSite(
         control_runner,
-        "0.0.0.0",
+        settings.control_host,
         settings.control_port,
     )
 
     await proxy_site.start()
     await control_site.start()
 
-    logger.info(f"Proxy (device) API started on port {settings.proxy_port}")
-    logger.info(f"Control API started on port {settings.control_port}")
+    logger.info(f"Proxy (device) API started on {settings.proxy_host}:{settings.proxy_port}")
+    logger.info(f"Control API started on {settings.control_host}:{settings.control_port}")
 
     # Wait for shutdown signal
     shutdown_event = asyncio.Event()

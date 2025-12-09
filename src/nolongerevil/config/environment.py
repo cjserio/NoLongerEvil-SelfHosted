@@ -21,9 +21,17 @@ class Settings(BaseSettings):
         default="https://backdoor.nolongerevil.com",
         description="API URL for device communication",
     )
+    proxy_host: str = Field(
+        default="0.0.0.0",
+        description="Host/IP to bind device API server",
+    )
     proxy_port: int = Field(
         default=443,
         description="Port for device API (Nest protocol emulation)",
+    )
+    control_host: str = Field(
+        default="0.0.0.0",
+        description="Host/IP to bind control API server",
     )
     control_port: int = Field(
         default=8081,
