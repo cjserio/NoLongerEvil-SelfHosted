@@ -198,7 +198,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                     object_revision=new_revision,
                     object_timestamp=new_timestamp,
                     value=merged_value,
-                    updated_at=datetime.utcnow(),
+                    updated_at=datetime.now(),
                 )
             )
 
@@ -214,7 +214,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                     object_revision=0,
                     object_timestamp=0,
                     value={},
-                    updated_at=datetime.utcnow(),
+                    updated_at=datetime.now(),
                 )
             )
 
@@ -258,7 +258,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                     object_revision=client_obj.get("object_revision", 0),
                     object_timestamp=client_obj.get("object_timestamp", 0),
                     value=merged_value,
-                    updated_at=datetime.utcnow(),
+                    updated_at=datetime.now(),
                 )
             )
 
@@ -403,7 +403,7 @@ async def handle_transport_put(request: web.Request) -> web.Response:
             object_revision=new_revision,
             object_timestamp=new_timestamp,
             value=merged_value,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         await state_service.upsert_object(new_obj)
 

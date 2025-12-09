@@ -199,7 +199,7 @@ class DeviceStateService:
             object_revision=revision,
             object_timestamp=timestamp,
             value=merged_values,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         await self.upsert_object(obj)

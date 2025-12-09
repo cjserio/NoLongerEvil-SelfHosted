@@ -50,7 +50,7 @@ class TestSubscriptionManager:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         notified = await subscription_manager.notify_subscribers(
@@ -79,7 +79,7 @@ class TestSubscriptionManager:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         shared_obj = DeviceObject(
             serial="TEST12345678",
@@ -87,7 +87,7 @@ class TestSubscriptionManager:
             object_revision=1,
             object_timestamp=1234567890,
             value={"name": "Test"},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         await subscription_manager.notify_subscribers(
@@ -115,7 +115,7 @@ class TestSubscriptionManager:
             object_revision=5,  # Same revision
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         notified = await subscription_manager.notify_subscribers(

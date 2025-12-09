@@ -320,7 +320,7 @@ class MqttIntegration(BaseIntegration):
             object_revision=new_revision,
             object_timestamp=new_timestamp,
             value=new_value,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         await self._state_service.upsert_object(obj)
         logger.info(f"Applied raw command to {serial}: {{{field}: {value}}}")
@@ -344,7 +344,7 @@ class MqttIntegration(BaseIntegration):
             object_revision=new_revision,
             object_timestamp=new_timestamp,
             value=new_value,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         await self._state_service.upsert_object(obj)
         logger.info(f"Applied MQTT command to {serial}: {{{field}: {value}}}")
@@ -368,7 +368,7 @@ class MqttIntegration(BaseIntegration):
             object_revision=new_revision,
             object_timestamp=new_timestamp,
             value=new_value,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         await self._state_service.upsert_object(obj)
         logger.info(f"Applied MQTT command to {serial}: {{{field}: {value}}}")
@@ -392,7 +392,7 @@ class MqttIntegration(BaseIntegration):
             object_revision=new_revision,
             object_timestamp=new_timestamp,
             value=new_value,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         await self._state_service.upsert_object(obj)
         logger.info(f"Applied MQTT command to {serial}: {fields}")

@@ -97,19 +97,20 @@ class SQLite3Service(AbstractDeviceStateManager):
                 lastActivity INTEGER,
                 open INTEGER NOT NULL DEFAULT 0,
                 client TEXT,
-                meta TEXT
+                meta TEXT,
+                PRIMARY KEY (serial, session)
             );
 
             -- User accounts
             CREATE TABLE IF NOT EXISTS users (
-                clerkId TEXT,
+                clerkId TEXT PRIMARY KEY,
                 email TEXT,
                 createdAt INTEGER
             );
 
             -- Device pairing codes
             CREATE TABLE IF NOT EXISTS entryKeys (
-                code TEXT,
+                code TEXT PRIMARY KEY,
                 serial TEXT,
                 createdAt INTEGER,
                 expiresAt INTEGER,
@@ -119,8 +120,8 @@ class SQLite3Service(AbstractDeviceStateManager):
 
             -- Device ownership
             CREATE TABLE IF NOT EXISTS deviceOwners (
+                serial TEXT PRIMARY KEY,
                 userId TEXT,
-                serial TEXT,
                 createdAt INTEGER
             );
 
@@ -129,7 +130,8 @@ class SQLite3Service(AbstractDeviceStateManager):
                 postalCode TEXT,
                 country TEXT,
                 fetchedAt INTEGER,
-                data TEXT
+                data TEXT,
+                PRIMARY KEY (postalCode, country)
             );
 
             -- Device access sharing
@@ -138,7 +140,8 @@ class SQLite3Service(AbstractDeviceStateManager):
                 sharedWithUserId TEXT,
                 serial TEXT,
                 permissions TEXT,
-                createdAt INTEGER
+                createdAt INTEGER,
+                PRIMARY KEY (ownerId, sharedWithUserId, serial)
             );
 
             -- Device share invitations (note: typo matches TypeScript original)
@@ -148,7 +151,7 @@ class SQLite3Service(AbstractDeviceStateManager):
                 serial TEXT,
                 permissions TEXT,
                 status TEXT,
-                inviteToken TEXT,
+                inviteToken TEXT PRIMARY KEY,
                 invitedAt INTEGER,
                 acceptedAt INTEGER,
                 expiresAt INTEGER,
@@ -158,7 +161,7 @@ class SQLite3Service(AbstractDeviceStateManager):
             -- API authentication keys
             CREATE TABLE IF NOT EXISTS apiKeys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                keyHash TEXT,
+                keyHash TEXT UNIQUE,
                 keyPreview TEXT,
                 userId TEXT,
                 name TEXT,
@@ -175,7 +178,8 @@ class SQLite3Service(AbstractDeviceStateManager):
                 enabled INTEGER NOT NULL DEFAULT 0,
                 config TEXT,
                 createdAt INTEGER,
-                updatedAt INTEGER
+                updatedAt INTEGER,
+                PRIMARY KEY (userId, type)
             );
 
             -- Indexes for performance

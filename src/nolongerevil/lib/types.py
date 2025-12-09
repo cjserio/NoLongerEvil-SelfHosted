@@ -27,7 +27,7 @@ class DeviceStateChange:
     old_value: dict[str, Any] | None
     new_value: dict[str, Any]
     changed_fields: list[str]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=datetime.now)
 
 
 @dataclass

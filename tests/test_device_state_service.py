@@ -20,7 +20,7 @@ class TestDeviceStateService:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         await state_service.upsert_object(obj)
@@ -39,7 +39,7 @@ class TestDeviceStateService:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0, "mode": "heat"},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         await state_service.upsert_object(obj)
 
@@ -65,7 +65,7 @@ class TestDeviceStateService:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         obj2 = DeviceObject(
             serial="TEST87654321",
@@ -73,7 +73,7 @@ class TestDeviceStateService:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 22.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         await state_service.upsert_object(obj1)
@@ -94,7 +94,7 @@ class TestDeviceStateService:
             object_revision=5,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         await state_service.upsert_object(obj)
 
@@ -128,7 +128,7 @@ class TestDeviceStateService:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         await state_service.upsert_object(obj)
 

@@ -24,7 +24,7 @@ class DeviceStatus:
     """Tracking data for a device's availability."""
 
     serial: str
-    last_seen: datetime = field(default_factory=datetime.utcnow)
+    last_seen: datetime = field(default_factory=datetime.now)
     is_available: bool = True
 
 
@@ -101,7 +101,7 @@ class DeviceAvailability:
 
     async def _check_devices(self) -> None:
         """Check all devices for timeout."""
-        now = datetime.utcnow()
+        now = datetime.now()
         stale_threshold = now - self._timeout
 
         for serial, status in list(self._devices.items()):
@@ -120,7 +120,7 @@ class DeviceAvailability:
         Args:
             serial: Device serial number
         """
-        now = datetime.utcnow()
+        now = datetime.now()
 
         if serial not in self._devices:
             self._devices[serial] = DeviceStatus(serial=serial, last_seen=now)

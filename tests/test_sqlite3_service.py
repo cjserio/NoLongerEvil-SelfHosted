@@ -26,7 +26,7 @@ class TestSQLite3ServiceDeviceObjects:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         await sqlite_service.upsert_object(obj)
@@ -53,7 +53,7 @@ class TestSQLite3ServiceDeviceObjects:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
         obj2 = DeviceObject(
             serial=serial,
@@ -61,7 +61,7 @@ class TestSQLite3ServiceDeviceObjects:
             object_revision=1,
             object_timestamp=1234567890,
             value={"name": "Living Room"},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         await sqlite_service.upsert_object(obj1)
@@ -83,7 +83,7 @@ class TestSQLite3ServiceDeviceObjects:
             object_revision=1,
             object_timestamp=1234567890,
             value={"target_temperature": 21.0},
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(),
         )
 
         await sqlite_service.upsert_object(obj)
@@ -99,7 +99,7 @@ class TestSQLite3ServiceEntryKeys:
     @pytest.mark.asyncio
     async def test_create_and_get_entry_key(self, sqlite_service: SQLite3Service):
         """Test creating and retrieving an entry key."""
-        now = datetime.utcnow()
+        now = datetime.now()
         entry_key = EntryKey(
             code="ABC123",
             serial="TEST12345678",
@@ -117,7 +117,7 @@ class TestSQLite3ServiceEntryKeys:
     @pytest.mark.asyncio
     async def test_claim_entry_key(self, sqlite_service: SQLite3Service):
         """Test claiming an entry key."""
-        now = datetime.utcnow()
+        now = datetime.now()
         entry_key = EntryKey(
             code="ABC123",
             serial="TEST12345678",
@@ -136,7 +136,7 @@ class TestSQLite3ServiceEntryKeys:
     @pytest.mark.asyncio
     async def test_claim_expired_key_fails(self, sqlite_service: SQLite3Service):
         """Test claiming an expired key fails."""
-        now = datetime.utcnow()
+        now = datetime.now()
         entry_key = EntryKey(
             code="ABC123",
             serial="TEST12345678",
@@ -159,7 +159,7 @@ class TestSQLite3ServiceUsers:
         user = UserInfo(
             clerk_id="user_123",
             email="test@example.com",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(),
         )
 
         await sqlite_service.create_user(user)
@@ -174,7 +174,7 @@ class TestSQLite3ServiceUsers:
         user = UserInfo(
             clerk_id="user_123",
             email="test@example.com",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(),
         )
 
         await sqlite_service.create_user(user)
@@ -193,7 +193,7 @@ class TestSQLite3ServiceDeviceOwners:
         owner = DeviceOwner(
             serial="TEST12345678",
             user_id="user_123",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(),
         )
 
         await sqlite_service.set_device_owner(owner)
@@ -208,12 +208,12 @@ class TestSQLite3ServiceDeviceOwners:
         owner1 = DeviceOwner(
             serial="TEST12345678",
             user_id="user_123",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(),
         )
         owner2 = DeviceOwner(
             serial="TEST87654321",
             user_id="user_123",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(),
         )
 
         await sqlite_service.set_device_owner(owner1)
@@ -235,7 +235,7 @@ class TestSQLite3ServiceWeather:
         weather = WeatherData(
             postal_code="94102",
             country="US",
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(),
             data={"temperature": 18.5, "humidity": 65},
         )
 

@@ -52,7 +52,7 @@ class WeatherService:
         Returns:
             True if cache is valid
         """
-        age = datetime.utcnow() - weather.fetched_at
+        age = datetime.now() - weather.fetched_at
         return age < timedelta(seconds=settings.weather_cache_ttl_seconds)
 
     async def get_weather(
@@ -91,7 +91,7 @@ class WeatherService:
                 weather = WeatherData(
                     postal_code=cache_postal,
                     country=cache_country,
-                    fetched_at=datetime.utcnow(),
+                    fetched_at=datetime.now(),
                     data=data,
                 )
                 await self._storage.cache_weather(weather)

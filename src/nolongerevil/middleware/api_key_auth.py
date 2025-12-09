@@ -84,7 +84,7 @@ async def validate_api_key(
         return None
 
     # Check expiration
-    if api_key.expires_at and api_key.expires_at < datetime.utcnow():
+    if api_key.expires_at and api_key.expires_at < datetime.now():
         logger.debug(f"API key expired: {api_key.key_preview}")
         return None
 

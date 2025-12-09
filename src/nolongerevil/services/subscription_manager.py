@@ -24,7 +24,7 @@ class ChunkedSubscription:
     session_id: str
     subscribed_keys: dict[str, int]  # object_key -> last known revision
     response: web.StreamResponse
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=datetime.now)
 
 
 @dataclass
@@ -35,7 +35,7 @@ class PendingSubscription:
     session_id: str
     subscribed_keys: dict[str, int]  # object_key -> last known revision
     future: asyncio.Future[list[DeviceObject]]
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=datetime.now)
 
 
 class SubscriptionManager:
