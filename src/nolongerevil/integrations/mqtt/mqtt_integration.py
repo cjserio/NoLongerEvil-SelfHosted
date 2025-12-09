@@ -581,6 +581,158 @@ class MqttIntegration(BaseIntegration):
             except (ValueError, TypeError):
                 pass  # Skip if battery_level is not a valid number
 
+        # RSSI (WiFi signal strength)
+        rssi = device_values.get("rssi")
+        if rssi is not None:
+            # RSSI is reported as positive value, convert to negative dBm
+            rssi_dbm = -abs(float(rssi))
+            await client.publish(
+                f"{prefix}/{serial}/ha/rssi",
+                str(rssi_dbm),
+                retain=True,
+            )
+
+        # Filter replacement needed
+        filter_replacement = device_values.get("filter_replacement_needed")
+        if filter_replacement is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/filter_replacement_needed",
+                str(filter_replacement).lower(),
+                retain=True,
+            )
+
+        # Filter runtime (convert seconds to days)
+        filter_runtime_sec = device_values.get("filter_runtime_sec")
+        if filter_runtime_sec is not None:
+            try:
+                filter_runtime_days = round(float(filter_runtime_sec) / 86400, 1)
+                await client.publish(
+                    f"{prefix}/{serial}/ha/filter_runtime_days",
+                    str(filter_runtime_days),
+                    retain=True,
+                )
+            except (ValueError, TypeError):
+                pass
+
+        # Time to target (convert from epoch timestamp to minutes remaining)
+        # Skip if 0 (meaning thermostat has reached target or not actively heating/cooling)
+        time_to_target = device_values.get("time_to_target")
+        if time_to_target is not None and time_to_target != 0:
+            try:
+                target_timestamp = int(time_to_target)
+                now_seconds = int(time.time())
+                if target_timestamp > now_seconds:
+                    minutes_remaining = (target_timestamp - now_seconds) // 60
+                else:
+                    minutes_remaining = 0
+                await client.publish(
+                    f"{prefix}/{serial}/ha/time_to_target",
+                    str(minutes_remaining),
+                    retain=True,
+                )
+            except (ValueError, TypeError):
+                pass
+
+        # Backplate temperature
+        backplate_temp = device_values.get("backplate_temperature")
+        if backplate_temp is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/backplate_temperature",
+                str(backplate_temp),
+                retain=True,
+            )
+
+        # Sunlight correction active
+        sunlight_correction = device_values.get("sunlight_correction_active")
+        if sunlight_correction is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/sunlight_correction_active",
+                str(sunlight_correction).lower(),
+                retain=True,
+            )
+
+        # Preconditioning active
+        preconditioning = device_values.get("preconditioning_active")
+        if preconditioning is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/preconditioning_active",
+                str(preconditioning).lower(),
+                retain=True,
+            )
+
+        # Safety state (convert to binary - "none" = false, anything else = true)
+        safety_state = device_values.get("safety_state")
+        if safety_state is not None:
+            safety_issue = str(safety_state).lower() != "none"
+            await client.publish(
+                f"{prefix}/{serial}/ha/safety_issue",
+                str(safety_issue).lower(),
+                retain=True,
+            )
+
+        # HVAC safety shutoff active
+        hvac_safety_shutoff = device_values.get("hvac_safety_shutoff_active")
+        if hvac_safety_shutoff is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/hvac_safety_shutoff_active",
+                str(hvac_safety_shutoff).lower(),
+                retain=True,
+            )
+
+        # Compressor lockout timeout (from shared values)
+        compressor_lockout = shared_values.get("compressor_lockout_timeout")
+        if compressor_lockout is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/compressor_lockout_timeout",
+                str(compressor_lockout),
+                retain=True,
+            )
+
+        # Learning mode
+        learning_mode = device_values.get("learning_mode")
+        if learning_mode is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/learning_mode",
+                str(learning_mode).lower(),
+                retain=True,
+            )
+
+        # Current schedule mode
+        schedule_mode = device_values.get("current_schedule_mode")
+        if schedule_mode is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/schedule_mode",
+                str(schedule_mode),
+                retain=True,
+            )
+
+        # Aux heater state (from shared values)
+        aux_heater = shared_values.get("hvac_aux_heater_state")
+        if aux_heater is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/aux_heater_active",
+                str(aux_heater).lower(),
+                retain=True,
+            )
+
+        # Heat pump ready
+        heat_pump_ready = device_values.get("heatpump_ready")
+        if heat_pump_ready is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/heat_pump_ready",
+                str(heat_pump_ready).lower(),
+                retain=True,
+            )
+
+        # Local IP
+        local_ip = device_values.get("local_ip")
+        if local_ip is not None:
+            await client.publish(
+                f"{prefix}/{serial}/ha/local_ip",
+                str(local_ip),
+                retain=True,
+            )
+
         logger.debug(f"Published HA state for {serial}")
 
     async def on_device_connected(self, serial: str) -> None:
