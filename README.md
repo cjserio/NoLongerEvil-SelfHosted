@@ -1,5 +1,11 @@
 # NoLongerEvil Self-Hosted Server
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/hackhouse)
+[![codecov](https://codecov.io/gh/codykociemba/NoLongerEvil-SelfHosted/graph/badge.svg)](https://codecov.io/gh/codykociemba/NoLongerEvil-SelfHosted)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/codykociemba/NoLongerEvil-SelfHosted/actions/workflows/ci.yml/badge.svg)](https://github.com/codykociemba/NoLongerEvil-SelfHosted/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/codykociemba/NoLongerEvil-SelfHosted)](https://github.com/codykociemba/NoLongerEvil-SelfHosted/releases/latest)
+
 A self-hosted server implementation for Nest thermostats, written in Python. This server emulates Nest cloud endpoints, allowing you to maintain control of your Nest thermostat locally without relying on external cloud services.
 
 ## Features
@@ -23,7 +29,7 @@ A self-hosted server implementation for Nest thermostats, written in Python. Thi
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/nolongerevil/nolongerevil-selfhosted.git
+   git clone https://github.com/codykociemba/NoLongerEvil-SelfHosted.git
    cd nolongerevil-selfhosted
    ```
 
@@ -182,63 +188,6 @@ climate:
       - "heat_cool"
 ```
 
-## Development
-
-### Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/nolongerevil/nolongerevil-selfhosted.git
-cd nolongerevil-selfhosted
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install with dev dependencies (from pyproject.toml)
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Run linting
-ruff check src/
-ruff format src/
-
-# Type checking
-mypy src/nolongerevil
-```
-
-### Project Structure
-
-```
-src/nolongerevil/
-├── config/           # Configuration management
-├── integrations/     # External integrations (MQTT)
-│   └── mqtt/         # MQTT/Home Assistant integration
-├── lib/              # Core utilities and types
-├── middleware/       # HTTP middleware
-├── routes/           # API routes
-│   ├── control/      # Control API routes
-│   └── nest/         # Device API routes
-├── services/         # Business logic services
-├── utils/            # Helper utilities
-└── main.py           # Application entry point
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=nolongerevil --cov-report=html
-
-# Run specific test file
-pytest tests/test_sqlite3_service.py
-```
-
 ## Deployment
 
 ### Docker
@@ -279,10 +228,10 @@ For production deployments with HTTPS:
      - CERT_DIR=/app/certs
    ```
 
+## Contributing
+
+See the [CONTRIBUTING](CONTRIBUTING.md) guide for development setup instructions.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-This project is a Python port of the original TypeScript implementation, maintaining full feature parity while providing a more accessible codebase for the Python ecosystem.

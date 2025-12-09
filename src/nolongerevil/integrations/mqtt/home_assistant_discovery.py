@@ -719,8 +719,12 @@ def get_all_discovery_configs(
     configs.append((rssi_topic, rssi_payload))
 
     # Filter replacement needed binary sensor
-    filter_replacement_topic = f"{discovery_prefix}/binary_sensor/nest_{serial}/filter_replacement/config"
-    filter_replacement_payload = build_filter_replacement_binary_sensor_discovery(serial, topic_prefix)
+    filter_replacement_topic = (
+        f"{discovery_prefix}/binary_sensor/nest_{serial}/filter_replacement/config"
+    )
+    filter_replacement_payload = build_filter_replacement_binary_sensor_discovery(
+        serial, topic_prefix
+    )
     configs.append((filter_replacement_topic, filter_replacement_payload))
 
     # Filter runtime sensor
