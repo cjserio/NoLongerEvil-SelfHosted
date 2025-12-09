@@ -22,7 +22,6 @@
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
       margin-bottom: 20px;
     }
-    .status { color: #4CAF50; font-weight: bold; }
     .form-input {
       padding: 10px;
       font-size: 16px;
@@ -59,12 +58,6 @@
   <h1>🌡️ NoLongerEvil Device Management</h1>
 
   <div class="card">
-    <h2>Welcome!</h2>
-    <p class="status">✓ MQTT Integration Active</p>
-    <p>Your NoLongerEvil server is running and ready to manage Nest thermostats.</p>
-  </div>
-
-  <div class="card">
     <h2>Quick Start</h2>
     <ol>
       <li>On your Nest thermostat, go to Settings &gt; Reset &gt; Network</li>
@@ -92,13 +85,15 @@
   </div>
 
   <div class="card">
-    <h2>Devices</h2>
-    <div id="deviceList">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <h2 style="margin: 0;">Devices</h2>
+      <button onclick="loadDevices()" class="btn btn-primary" style="margin: 0;">
+        <i class="mdi mdi-refresh"></i> Refresh
+      </button>
+    </div>
+    <div id="deviceList" style="margin-top: 15px;">
       <p><em>Loading devices...</em></p>
     </div>
-    <button onclick="loadDevices()" class="btn btn-primary" style="margin-top: 10px;">
-      <i class="mdi mdi-refresh"></i> Refresh Devices
-    </button>
   </div>
 
   <script>
