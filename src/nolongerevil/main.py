@@ -264,6 +264,10 @@ async def run_server() -> None:
 
     device_availability = DeviceAvailability(subscription_manager)
 
+    # Initialize availability tracking for devices loaded from storage
+    known_serials = state_service.get_all_serials()
+    device_availability.initialize_from_serials(known_serials)
+
     # Initialize integration manager
     integration_manager = IntegrationManager(storage, state_service)
     state_service.set_integration_manager(integration_manager)

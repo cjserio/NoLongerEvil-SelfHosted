@@ -67,12 +67,53 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 0;
+      padding: 12px 0;
       border-bottom: 1px solid var(--border-light);
+      gap: 12px;
     }
     .device-item:last-child { border-bottom: none; }
+    .device-info { flex: 1; }
+    .device-status {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 14px;
+    }
+    .device-temp {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 60px;
+    }
+    .device-temp-current {
+      font-size: 24px;
+      font-weight: bold;
+    }
+    .device-temp-target {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .device-mode {
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+    .mode-heat { background: #ff5722; color: white; }
+    .mode-cool { background: #2196f3; color: white; }
+    .mode-range { background: #9c27b0; color: white; }
+    .mode-off { background: var(--border-color); color: var(--text-muted); }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-online { background: #4CAF50; }
+    .status-offline { background: #9e9e9e; }
     .text-muted { color: var(--text-muted); }
-    .monospace { font-family: monospace; }
+    .monospace { font-family: monospace; font-size: 12px; }
     #registerResult { margin-top: 15px; }
     #deviceList { margin-top: 15px; }
     .success { color: #4CAF50; }
@@ -169,6 +210,35 @@
       }
     });
 
+    function formatTemp(temp) {
+      if (temp === null || temp === undefined) return '--';
+      return Math.round(temp) + '°';
+    }
+
+    function getModeClass(mode) {
+      if (!mode) return 'mode-off';
+      const m = mode.toLowerCase();
+      if (m === 'heat') return 'mode-heat';
+      if (m === 'cool') return 'mode-cool';
+      if (m === 'range') return 'mode-range';
+      return 'mode-off';
+    }
+
+    function getModeLabel(mode) {
+      if (!mode) return 'OFF';
+      const m = mode.toLowerCase();
+      if (m === 'range') return 'AUTO';
+      return m.toUpperCase();
+    }
+
+    function getTargetTemp(d) {
+      if (!d.mode || d.mode.toLowerCase() === 'off') return '';
+      if (d.mode.toLowerCase() === 'range') {
+        return formatTemp(d.target_temperature_low) + ' - ' + formatTemp(d.target_temperature_high);
+      }
+      return '→ ' + formatTemp(d.target_temperature);
+    }
+
     async function loadDevices() {
       const deviceList = document.getElementById('deviceList');
       try {
@@ -180,12 +250,25 @@
           deviceList.innerHTML = '<p><em>No devices registered yet</em></p>';
         } else {
           deviceList.innerHTML = devices.map(d => {
+            const isOnline = d.is_available;
+            const statusClass = isOnline ? 'status-online' : 'status-offline';
+            const statusTitle = isOnline ? 'Online' : 'Offline';
+            const modeClass = getModeClass(d.mode);
+            const modeLabel = getModeLabel(d.mode);
+            const targetTemp = getTargetTemp(d);
+
             return '<div class="device-item">' +
-              '<div>' +
+              '<div class="device-info">' +
+                '<span class="status-dot ' + statusClass + '" title="' + statusTitle + '"></span> ' +
                 '<strong>' + (d.name || d.serial) + '</strong><br>' +
                 '<small class="text-muted monospace">' + d.serial + '</small>' +
               '</div>' +
-              '<div>' +
+              '<div class="device-status">' +
+                '<div class="device-temp">' +
+                  '<span class="device-temp-current">' + formatTemp(d.current_temperature) + '</span>' +
+                  '<span class="device-temp-target">' + targetTemp + '</span>' +
+                '</div>' +
+                '<span class="device-mode ' + modeClass + '">' + modeLabel + '</span>' +
                 '<button onclick="deleteDevice(\'' + d.serial + '\')" class="btn btn-danger" title="Delete">' +
                   '<i class="mdi mdi-delete"></i>' +
                 '</button>' +

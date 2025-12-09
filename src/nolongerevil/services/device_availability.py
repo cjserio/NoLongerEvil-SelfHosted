@@ -64,6 +64,25 @@ class DeviceAvailability:
         """
         self._integration_manager = manager
 
+    def initialize_from_serials(self, serials: list[str]) -> None:
+        """Initialize tracking for known devices loaded from storage.
+
+        Devices are initially marked as available since they exist in the database.
+        The monitoring loop will mark them unavailable if they don't communicate.
+
+        Args:
+            serials: List of known device serial numbers
+        """
+        for serial in serials:
+            if serial not in self._devices:
+                self._devices[serial] = DeviceStatus(
+                    serial=serial,
+                    last_seen=datetime.now(),
+                    is_available=True,
+                )
+        if serials:
+            logger.info(f"Initialized availability tracking for {len(serials)} device(s)")
+
     async def start(self) -> None:
         """Start the availability monitoring task."""
         if self._running:
