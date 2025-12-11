@@ -1,0 +1,57 @@
+"""Device-related SQLModel models."""
+
+from sqlalchemy import Column, Index, Text
+from sqlmodel import Field, SQLModel
+
+
+class DeviceObjectModel(SQLModel, table=True):
+    """Device state object stored in the 'states' table."""
+
+    __tablename__ = "states"
+
+    # Composite primary key (serial, object_key)
+    serial: str = Field(primary_key=True)
+    object_key: str = Field(primary_key=True)
+    object_revision: int
+    object_timestamp: int
+    value: str = Field(sa_column=Column(Text))  # JSON stored as text
+    updatedAt: int  # Millisecond timestamp
+
+    __table_args__ = (Index("idx_states_serial", "serial"),)
+
+
+class SessionModel(SQLModel, table=True):
+    """Device connection session stored in the 'sessions' table."""
+
+    __tablename__ = "sessions"
+
+    serial: str = Field(primary_key=True)
+    session: str = Field(primary_key=True)
+    endpoint: str
+    startedAt: int  # Millisecond timestamp
+    lastActivity: int  # Millisecond timestamp
+    open: int  # Boolean as integer (0/1)
+    client: str | None = None
+    meta: str | None = Field(default=None, sa_column=Column(Text))  # JSON as text
+
+    __table_args__ = (Index("idx_sessions_serial", "serial"),)
+
+
+class LogModel(SQLModel, table=True):
+    """Request/response log stored in the 'logs' table."""
+
+    __tablename__ = "logs"
+
+    # SQLModel requires a primary key, but logs table doesn't have one
+    # We'll add an auto-increment id column
+    id: int | None = Field(default=None, primary_key=True)
+    ts: int  # Millisecond timestamp
+    route: str
+    serial: str | None = None
+    req: str = Field(sa_column=Column(Text))  # JSON as text
+    res: str = Field(sa_column=Column(Text))  # JSON as text
+
+    __table_args__ = (
+        Index("idx_logs_serial", "serial"),
+        Index("idx_logs_ts", "ts"),
+    )

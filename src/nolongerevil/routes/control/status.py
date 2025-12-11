@@ -1,0 +1,342 @@
+"""Control API status endpoints - device state inspection."""
+
+from typing import Any
+
+from aiohttp import web
+
+from nolongerevil.lib.logger import get_logger
+from nolongerevil.services.device_availability import DeviceAvailability
+from nolongerevil.services.device_state_service import DeviceStateService
+from nolongerevil.services.subscription_manager import SubscriptionManager
+
+logger = get_logger(__name__)
+
+
+def format_device_status(
+    serial: str,
+    state_service: DeviceStateService,
+    device_availability: DeviceAvailability,
+) -> dict[str, Any]:
+    """Format device status for API response.
+
+    Args:
+        serial: Device serial
+        state_service: Device state service
+        device_availability: Device availability service
+
+    Returns:
+        Device status dictionary
+    """
+    device_obj = state_service.get_object(serial, f"device.{serial}")
+    shared_obj = state_service.get_object(serial, f"shared.{serial}")
+
+    device_values = device_obj.value if device_obj else {}
+    shared_values = shared_obj.value if shared_obj else {}
+
+    # Extract key fields
+    status = {
+        "serial": serial,
+        "is_available": device_availability.is_available(serial),
+        "last_seen": device_availability.get_last_seen(serial),
+        "name": shared_values.get("name") or device_values.get("where_id") or serial,
+        "current_temperature": device_values.get("current_temperature"),
+        "target_temperature": device_values.get("target_temperature"),
+        "target_temperature_high": device_values.get("target_temperature_high"),
+        "target_temperature_low": device_values.get("target_temperature_low"),
+        "humidity": device_values.get("current_humidity"),
+        "mode": device_values.get("target_temperature_type"),
+        "hvac_state": device_values.get("hvac_heater_state") or device_values.get("hvac_ac_state"),
+        "fan_timer_active": bool(device_values.get("fan_timer_timeout", 0)),
+        "eco_temperatures": {
+            "high": device_values.get("eco_temperature_high"),
+            "low": device_values.get("eco_temperature_low"),
+        },
+        "is_online": device_values.get("is_online", False),
+        "has_leaf": device_values.get("leaf", False),
+        "software_version": device_values.get("current_version"),
+    }
+
+    # Add shared/structure info
+    if shared_values:
+        status["structure_id"] = shared_values.get("structure_id")
+        status["away"] = shared_values.get("away", False)
+
+    return status
+
+
+async def handle_status(request: web.Request) -> web.Response:
+    """Handle GET /status - get device state.
+
+    Query parameters:
+        serial: Device serial (required)
+
+    Returns:
+        JSON response with device status
+    """
+    serial = request.query.get("serial")
+    if not serial:
+        return web.json_response(
+            {"error": "Serial parameter required"},
+            status=400,
+        )
+
+    state_service: DeviceStateService = request.app["state_service"]
+    device_availability: DeviceAvailability = request.app["device_availability"]
+
+    # Check if device exists
+    objects = state_service.get_objects_by_serial(serial)
+    if not objects:
+        return web.json_response(
+            {"error": "Device not found"},
+            status=404,
+        )
+
+    status = format_device_status(serial, state_service, device_availability)
+
+    return web.json_response(status)
+
+
+async def handle_devices(request: web.Request) -> web.Response:
+    """Handle GET /api/devices - list all known devices.
+
+    Returns:
+        JSON response with list of devices and their status
+    """
+    state_service: DeviceStateService = request.app["state_service"]
+    device_availability: DeviceAvailability = request.app["device_availability"]
+    subscription_manager: SubscriptionManager = request.app["subscription_manager"]
+
+    serials = state_service.get_all_serials()
+
+    devices = []
+    for serial in serials:
+        status = format_device_status(serial, state_service, device_availability)
+        status["subscription_count"] = subscription_manager.get_subscription_count(serial)
+        devices.append(status)
+
+    return web.json_response(
+        {
+            "devices": devices,
+            "total": len(devices),
+        }
+    )
+
+
+async def handle_notify_device(request: web.Request) -> web.Response:
+    """Handle POST /notify-device - manual notification trigger.
+
+    Forces all subscribers of a device to receive current state.
+    Useful for testing or forcing state refresh.
+
+    Request body:
+        {
+            "serial": "DEVICE_SERIAL"
+        }
+
+    Returns:
+        JSON response with notification result
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response(
+            {"error": "Invalid JSON"},
+            status=400,
+        )
+
+    serial = body.get("serial")
+    if not serial:
+        return web.json_response(
+            {"error": "Serial required"},
+            status=400,
+        )
+
+    state_service: DeviceStateService = request.app["state_service"]
+    subscription_manager: SubscriptionManager = request.app["subscription_manager"]
+
+    objects = state_service.get_objects_by_serial(serial)
+    if not objects:
+        return web.json_response(
+            {"error": "Device not found"},
+            status=404,
+        )
+
+    # Notify all subscribers with current state
+    notified = await subscription_manager.notify_all_subscribers(serial, objects)
+
+    logger.info(f"Manual notification for device {serial}: {notified} subscribers notified")
+
+    return web.json_response(
+        {
+            "success": True,
+            "subscribers_notified": notified,
+        }
+    )
+
+
+async def handle_stats(request: web.Request) -> web.Response:
+    """Handle GET /api/stats - get server statistics.
+
+    Returns:
+        JSON response with server stats
+    """
+    state_service: DeviceStateService = request.app["state_service"]
+    subscription_manager: SubscriptionManager = request.app["subscription_manager"]
+    device_availability: DeviceAvailability = request.app["device_availability"]
+
+    serials = state_service.get_all_serials()
+    subscription_stats = subscription_manager.get_stats()
+    availability_stats = device_availability.get_all_statuses()
+
+    stats = {
+        "devices": {
+            "total": len(serials),
+            "available": sum(1 for s in serials if device_availability.is_available(s)),
+            "serials": serials,
+        },
+        "subscriptions": subscription_stats,
+        "availability": availability_stats,
+    }
+
+    return web.json_response(stats)
+
+
+async def handle_dismiss_pairing(request: web.Request) -> web.Response:
+    """Handle POST /api/dismiss-pairing/{serial} - dismiss pairing dialog for a device.
+
+    This is called after successful device registration to dismiss the "confirm-pairing"
+    alert dialog on the physical thermostat.
+
+    Path parameters:
+        serial: Device serial
+
+    Returns:
+        JSON response with result
+    """
+    serial = request.match_info.get("serial")
+    if not serial:
+        return web.json_response(
+            {"error": "Serial required"},
+            status=400,
+        )
+
+    state_service: DeviceStateService = request.app["state_service"]
+    subscription_manager: SubscriptionManager = request.app["subscription_manager"]
+
+    # Delete the pairing alert dialog
+    alert_dialog_key = f"device_alert_dialog.{serial}"
+    existing_dialog = state_service.get_object(serial, alert_dialog_key)
+
+    if existing_dialog:
+        # Update the alert dialog to dismissed state (empty dialog_id)
+        # Don't delete it - keep it with incremented revision so device knows it changed
+        import time
+        from datetime import datetime
+
+        from nolongerevil.lib.types import DeviceObject
+
+        dismissed_dialog = DeviceObject(
+            serial=serial,
+            object_key=alert_dialog_key,
+            object_revision=existing_dialog.object_revision + 1,
+            object_timestamp=int(time.time() * 1000),
+            value={},  # Completely empty value to dismiss the dialog
+            updated_at=datetime.now(),
+        )
+
+        # Save the dismissed state
+        await state_service.upsert_object(dismissed_dialog)
+        logger.info(
+            f"Dismissed pairing dialog for {serial} (rev {dismissed_dialog.object_revision})"
+        )
+
+        # Notify all subscribers with the dismissed dialog
+        await subscription_manager.notify_all_subscribers(serial, [dismissed_dialog])
+
+        return web.json_response(
+            {
+                "success": True,
+                "message": f"Pairing dialog dismissed for {serial}",
+            }
+        )
+    else:
+        logger.debug(f"No pairing dialog found for {serial}")
+        return web.json_response(
+            {
+                "success": True,
+                "message": f"No pairing dialog to dismiss for {serial}",
+            }
+        )
+
+
+async def handle_delete_device(request: web.Request) -> web.Response:
+    """Handle DELETE /api/device - delete a device by serial.
+
+    Request body:
+        {
+            "serial": "DEVICE_SERIAL"
+        }
+
+    Returns:
+        JSON response with deletion result
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response(
+            {"error": "Invalid JSON"},
+            status=400,
+        )
+
+    serial = body.get("serial")
+    if not serial:
+        return web.json_response(
+            {"error": "Serial required"},
+            status=400,
+        )
+
+    state_service: DeviceStateService = request.app["state_service"]
+
+    # Delete from state service
+    deleted_count = await state_service.delete_device(serial)
+
+    if deleted_count > 0:
+        logger.info(f"Deleted {deleted_count} objects for device {serial}")
+        return web.json_response(
+            {
+                "success": True,
+                "serial": serial,
+                "objects_deleted": deleted_count,
+            }
+        )
+    else:
+        return web.json_response(
+            {"error": "Device not found"},
+            status=404,
+        )
+
+
+def create_status_routes(
+    app: web.Application,
+    state_service: DeviceStateService,
+    subscription_manager: SubscriptionManager,
+    device_availability: DeviceAvailability,
+) -> None:
+    """Register status routes.
+
+    Args:
+        app: aiohttp application
+        state_service: Device state service
+        subscription_manager: Subscription manager
+        device_availability: Device availability service
+    """
+    app["state_service"] = state_service
+    app["subscription_manager"] = subscription_manager
+    app["device_availability"] = device_availability
+
+    app.router.add_get("/status", handle_status)
+    app.router.add_get("/api/devices", handle_devices)
+    app.router.add_post("/notify-device", handle_notify_device)
+    app.router.add_get("/api/stats", handle_stats)
+    app.router.add_post("/api/dismiss-pairing/{serial}", handle_dismiss_pairing)
+    app.router.add_delete("/api/device", handle_delete_device)
