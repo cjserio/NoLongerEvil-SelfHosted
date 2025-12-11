@@ -146,8 +146,8 @@
       <input
         type="text"
         id="entryCode"
-        placeholder="123ABCD"
-        maxlength="7"
+        placeholder="123-ABCD"
+        maxlength="8"
         class="form-input"
         required
       />
@@ -175,10 +175,27 @@
     // Load devices on page load
     loadDevices();
 
+    // Auto-format entry code with dash (XXX-XXXX)
+    const entryCodeInput = document.getElementById('entryCode');
+    entryCodeInput.addEventListener('input', (e) => {
+      const input = e.target;
+      const isDeleting = e.inputType && e.inputType.startsWith('delete');
+      let value = input.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      // Only add dash if we have more than 3 chars, or exactly 3 and not deleting
+      if (value.length > 3 || (value.length === 3 && !isDeleting)) {
+        value = value.slice(0, 3) + '-' + value.slice(3, 7);
+      }
+      input.value = value;
+      // Auto-position cursor after dash when it's inserted
+      if (value.length === 4 && !isDeleting) {
+        input.setSelectionRange(4, 4);
+      }
+    });
+
     // Handle registration form
     document.getElementById('registerForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const code = document.getElementById('entryCode').value.toUpperCase().trim();
+      const code = document.getElementById('entryCode').value.replace(/-/g, '').toUpperCase().trim();
       const resultDiv = document.getElementById('registerResult');
 
       if (code.length !== 7) {
