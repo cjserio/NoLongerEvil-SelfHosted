@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -356,8 +357,6 @@ class SQLModelService(AbstractDeviceStateManager):
 
     async def delete_device_owner(self, serial: str, user_id: str) -> bool:
         """Delete device ownership record."""
-        from sqlalchemy import delete
-
         async with self._session_maker() as session:
             result = await session.execute(
                 delete(DeviceOwnerModel).where(
