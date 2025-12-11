@@ -21,9 +21,17 @@ class Settings(BaseSettings):
         default="https://backdoor.nolongerevil.com",
         description="API URL for device communication",
     )
+    proxy_host: str = Field(
+        default="0.0.0.0",
+        description="Host/IP to bind device API server",
+    )
     proxy_port: int = Field(
         default=443,
         description="Port for device API (Nest protocol emulation)",
+    )
+    control_host: str = Field(
+        default="0.0.0.0",
+        description="Host/IP to bind control API server",
     )
     control_port: int = Field(
         default=8081,
@@ -69,24 +77,43 @@ class Settings(BaseSettings):
     )
 
     # Database configuration
-    sqlite3_enabled: bool = Field(
-        default=True,
-        description="Use SQLite3 for persistence",
-    )
     sqlite3_db_path: str = Field(
         default="./data/database.sqlite",
         description="Path to SQLite3 database file",
     )
 
-    # MQTT configuration
-    mqtt_broker_url: str | None = Field(
+    # MQTT configuration (from environment variables set by run.sh)
+    mqtt_host: str | None = Field(
         default=None,
-        description="MQTT broker URL (e.g., mqtt://localhost:1883)",
+        description="MQTT broker hostname",
+    )
+    mqtt_port: int = Field(
+        default=1883,
+        description="MQTT broker port",
+    )
+    mqtt_user: str | None = Field(
+        default=None,
+        description="MQTT username",
+    )
+    mqtt_password: str | None = Field(
+        default=None,
+        description="MQTT password",
     )
     mqtt_topic_prefix: str = Field(
         default="nolongerevil",
         description="Prefix for MQTT topics",
     )
+    mqtt_discovery_prefix: str = Field(
+        default="homeassistant",
+        description="Home Assistant MQTT discovery prefix",
+    )
+
+    @property
+    def mqtt_broker_url(self) -> str | None:
+        """Get MQTT broker URL from host/port."""
+        if not self.mqtt_host:
+            return None
+        return f"mqtt://{self.mqtt_host}:{self.mqtt_port}"
 
     @property
     def weather_cache_ttl_seconds(self) -> float:

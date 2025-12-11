@@ -37,7 +37,6 @@ services:
       - DEBUG_LOGGING=false
 
       # Database configuration
-      - SQLITE3_ENABLED=true
       - SQLITE3_DB_PATH=/app/data/database.sqlite
 
       # MQTT configuration (optional)

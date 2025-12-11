@@ -4,6 +4,7 @@ from typing import Any
 
 from aiohttp import web
 
+from nolongerevil.integrations.mqtt.helpers import get_device_name
 from nolongerevil.lib.logger import get_logger
 from nolongerevil.services.device_availability import DeviceAvailability
 from nolongerevil.services.device_state_service import DeviceStateService
@@ -34,18 +35,29 @@ def format_device_status(
     shared_values = shared_obj.value if shared_obj else {}
 
     # Extract key fields
+    # Temperature and mode values may be in shared or device objects
+    # (matching MQTT integration behavior)
+    last_seen = device_availability.get_last_seen(serial)
     status = {
         "serial": serial,
         "is_available": device_availability.is_available(serial),
-        "last_seen": device_availability.get_last_seen(serial),
-        "name": shared_values.get("name") or device_values.get("where_id") or serial,
-        "current_temperature": device_values.get("current_temperature"),
-        "target_temperature": device_values.get("target_temperature"),
-        "target_temperature_high": device_values.get("target_temperature_high"),
-        "target_temperature_low": device_values.get("target_temperature_low"),
+        "last_seen": last_seen.isoformat() if last_seen else None,
+        "name": get_device_name(device_values, shared_values, serial),
+        "current_temperature": shared_values.get("current_temperature")
+        or device_values.get("current_temperature"),
+        "target_temperature": shared_values.get("target_temperature")
+        or device_values.get("target_temperature"),
+        "target_temperature_high": shared_values.get("target_temperature_high")
+        or device_values.get("target_temperature_high"),
+        "target_temperature_low": shared_values.get("target_temperature_low")
+        or device_values.get("target_temperature_low"),
         "humidity": device_values.get("current_humidity"),
-        "mode": device_values.get("target_temperature_type"),
-        "hvac_state": device_values.get("hvac_heater_state") or device_values.get("hvac_ac_state"),
+        "mode": shared_values.get("target_temperature_type")
+        or device_values.get("target_temperature_type"),
+        "hvac_state": shared_values.get("hvac_heater_state")
+        or shared_values.get("hvac_ac_state")
+        or device_values.get("hvac_heater_state")
+        or device_values.get("hvac_ac_state"),
         "fan_timer_active": bool(device_values.get("fan_timer_timeout", 0)),
         "eco_temperatures": {
             "high": device_values.get("eco_temperature_high"),

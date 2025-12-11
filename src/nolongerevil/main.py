@@ -4,6 +4,7 @@ import asyncio
 import signal
 import ssl
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 
 from aiohttp import web
@@ -11,6 +12,7 @@ from aiohttp import web
 from nolongerevil.config import settings
 from nolongerevil.integrations.integration_manager import IntegrationManager
 from nolongerevil.lib.logger import get_logger
+from nolongerevil.lib.types import UserInfo
 from nolongerevil.middleware.debug_logger import create_debug_logger_middleware
 from nolongerevil.middleware.url_normalizer import create_url_normalizer_middleware
 from nolongerevil.routes.control import setup_control_routes
@@ -22,6 +24,84 @@ from nolongerevil.services.subscription_manager import SubscriptionManager
 from nolongerevil.services.weather_service import WeatherService
 
 logger = get_logger(__name__)
+
+
+async def ensure_homeassistant_user(storage: SQLModelService) -> None:
+    """Ensure the homeassistant user exists in the database.
+
+    Args:
+        storage: SQLModel storage service
+    """
+    user_id = "homeassistant"
+    existing_user = await storage.get_user(user_id)
+
+    if existing_user:
+        logger.debug(f"User '{user_id}' already exists")
+        return
+
+    user = UserInfo(
+        clerk_id=user_id,
+        email="homeassistant@local",
+        created_at=datetime.now(),
+    )
+    await storage.create_user(user)
+    logger.info(f"Created user '{user_id}'")
+
+
+async def initialize_mqtt_config(storage: SQLModelService) -> None:
+    """Initialize MQTT configuration from environment variables.
+
+    Args:
+        storage: SQLModel storage service
+    """
+    from nolongerevil.lib.types import IntegrationConfig
+
+    if not settings.mqtt_host:
+        logger.warning("MQTT not configured - no MQTT_HOST environment variable")
+        return
+
+    broker_url = settings.mqtt_broker_url
+    logger.info(f"Initializing MQTT configuration: {broker_url}")
+
+    mqtt_config = {
+        "brokerUrl": broker_url,
+        "clientId": "nolongerevil-homeassistant",
+        "topicPrefix": settings.mqtt_topic_prefix,
+        "discoveryPrefix": settings.mqtt_discovery_prefix,
+        "publishRaw": True,
+        "homeAssistantDiscovery": True,
+    }
+
+    # Add credentials if provided
+    if settings.mqtt_user:
+        mqtt_config["username"] = settings.mqtt_user
+    if settings.mqtt_password:
+        mqtt_config["password"] = settings.mqtt_password
+
+    user_id = "homeassistant"
+
+    # Check if integration exists
+    existing_integrations = await storage.get_integrations(user_id)
+    existing_mqtt = next((i for i in existing_integrations if i.type == "mqtt"), None)
+
+    now = datetime.now()
+    integration = IntegrationConfig(
+        user_id=user_id,
+        type="mqtt",
+        enabled=True,
+        config=mqtt_config,
+        created_at=existing_mqtt.created_at if existing_mqtt else now,
+        updated_at=now,
+    )
+
+    await storage.upsert_integration(integration)
+
+    if existing_mqtt:
+        logger.info("Updated MQTT integration config")
+    else:
+        logger.info("Created MQTT integration config")
+
+    logger.info(f"MQTT configured: broker={broker_url}, prefix={settings.mqtt_topic_prefix}")
 
 
 def create_proxy_app(
@@ -71,6 +151,7 @@ def create_control_app(
     state_service: DeviceStateService,
     subscription_manager: SubscriptionManager,
     device_availability: DeviceAvailability,
+    storage: SQLModelService | None = None,
 ) -> web.Application:
     """Create the control API application.
 
@@ -78,11 +159,13 @@ def create_control_app(
     - Device commands
     - Status queries
     - Device listing
+    - Device registration (when storage is provided)
 
     Args:
         state_service: Device state service
         subscription_manager: Subscription manager
         device_availability: Device availability service
+        storage: SQLModel storage service (optional, for registration routes)
 
     Returns:
         aiohttp Application
@@ -117,6 +200,7 @@ def create_control_app(
         state_service,
         subscription_manager,
         device_availability,
+        storage,
     )
 
     # Health check endpoint
@@ -160,6 +244,11 @@ async def run_server() -> None:
     # Initialize storage with SQLModel
     logger.info("Initializing SQLModel storage backend")
     storage = SQLModelService()
+    await storage.initialize()
+
+    # Initialize user and MQTT configuration
+    await ensure_homeassistant_user(storage)
+    await initialize_mqtt_config(storage)
 
     # Initialize services
     state_service = DeviceStateService(storage)
@@ -171,6 +260,10 @@ async def run_server() -> None:
     await weather_service.initialize()
 
     device_availability = DeviceAvailability(subscription_manager)
+
+    # Initialize availability tracking for devices loaded from storage
+    known_serials = state_service.get_all_serials()
+    device_availability.initialize_from_serials(known_serials)
 
     # Initialize integration manager
     integration_manager = IntegrationManager(storage, state_service)
@@ -192,6 +285,7 @@ async def run_server() -> None:
         state_service,
         subscription_manager,
         device_availability,
+        storage,
     )
 
     # Get SSL context
@@ -207,21 +301,21 @@ async def run_server() -> None:
     # Start servers
     proxy_site = web.TCPSite(
         proxy_runner,
-        "0.0.0.0",
+        settings.proxy_host,
         settings.proxy_port,
         ssl_context=ssl_context,
     )
     control_site = web.TCPSite(
         control_runner,
-        "0.0.0.0",
+        settings.control_host,
         settings.control_port,
     )
 
     await proxy_site.start()
     await control_site.start()
 
-    logger.info(f"Proxy (device) API started on port {settings.proxy_port}")
-    logger.info(f"Control API started on port {settings.control_port}")
+    logger.info(f"Proxy (device) API started on {settings.proxy_host}:{settings.proxy_port}")
+    logger.info(f"Control API started on {settings.control_host}:{settings.control_port}")
 
     # Wait for shutdown signal
     shutdown_event = asyncio.Event()

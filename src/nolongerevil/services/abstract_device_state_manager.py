@@ -125,6 +125,19 @@ class AbstractDeviceStateManager(ABC):
         """Get all device serials owned by a user."""
         pass
 
+    @abstractmethod
+    async def delete_device_owner(self, serial: str, user_id: str) -> bool:
+        """Delete device ownership record.
+
+        Args:
+            serial: Device serial
+            user_id: Owner user ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        pass
+
     # Weather operations
     @abstractmethod
     async def get_cached_weather(self, postal_code: str, country: str) -> WeatherData | None:

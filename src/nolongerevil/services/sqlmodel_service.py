@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -353,6 +354,18 @@ class SQLModelService(AbstractDeviceStateManager):
             )
             models = result.scalars().all()
             return [model.serial for model in models]
+
+    async def delete_device_owner(self, serial: str, user_id: str) -> bool:
+        """Delete device ownership record."""
+        async with self._session_maker() as session:
+            result = await session.execute(
+                delete(DeviceOwnerModel).where(
+                    DeviceOwnerModel.serial == serial,
+                    DeviceOwnerModel.userId == user_id,
+                )
+            )
+            await session.commit()
+            return result.rowcount > 0
 
     # Weather operations
 

@@ -17,7 +17,6 @@ class TestSettings:
         assert settings.weather_cache_ttl_ms == 600000
         assert settings.max_subscriptions_per_device == 100
         assert settings.debug_logging is False
-        assert settings.sqlite3_enabled is True
 
     def test_weather_cache_ttl_seconds(self):
         """Test weather cache TTL conversion."""
