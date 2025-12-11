@@ -17,7 +17,7 @@ from nolongerevil.routes.control import setup_control_routes
 from nolongerevil.routes.nest import setup_nest_routes
 from nolongerevil.services.device_availability import DeviceAvailability
 from nolongerevil.services.device_state_service import DeviceStateService
-from nolongerevil.services.sqlite3_service import SQLite3Service
+from nolongerevil.services.sqlmodel_service import SQLModelService
 from nolongerevil.services.subscription_manager import SubscriptionManager
 from nolongerevil.services.weather_service import WeatherService
 
@@ -157,11 +157,11 @@ async def run_server() -> None:
     # Ensure data directory exists
     settings.ensure_data_dir()
 
-    # Initialize storage
-    storage = SQLite3Service()
-    await storage.initialize()
+    # Initialize storage with SQLModel
+    logger.info("Initializing SQLModel storage backend")
+    storage = SQLModelService()
 
-    # Initialize services
+    # Initialize services (this will initialize storage internally)
     state_service = DeviceStateService(storage)
     await state_service.initialize()
 

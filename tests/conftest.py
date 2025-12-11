@@ -14,7 +14,7 @@ from aiohttp.test_utils import TestClient
 
 from nolongerevil.services.device_availability import DeviceAvailability
 from nolongerevil.services.device_state_service import DeviceStateService
-from nolongerevil.services.sqlite3_service import SQLite3Service
+from nolongerevil.services.sqlmodel_service import SQLModelService
 from nolongerevil.services.subscription_manager import SubscriptionManager
 from nolongerevil.services.weather_service import WeatherService
 
@@ -36,9 +36,10 @@ def temp_db_path() -> Generator[str, None, None]:
 
 
 @pytest_asyncio.fixture
-async def sqlite_service(temp_db_path: str) -> AsyncGenerator[SQLite3Service, None]:
-    """Create and initialize a SQLite3Service."""
-    service = SQLite3Service(temp_db_path)
+async def sqlmodel_service(temp_db_path: str) -> AsyncGenerator[SQLModelService, None]:
+    """Create and initialize a SQLModelService."""
+    db_url = f"sqlite+aiosqlite:///{temp_db_path}"
+    service = SQLModelService(db_url)
     await service.initialize()
     yield service
     await service.close()
@@ -46,10 +47,10 @@ async def sqlite_service(temp_db_path: str) -> AsyncGenerator[SQLite3Service, No
 
 @pytest_asyncio.fixture
 async def state_service(
-    sqlite_service: SQLite3Service,
+    sqlmodel_service: SQLModelService,
 ) -> AsyncGenerator[DeviceStateService, None]:
     """Create and initialize a DeviceStateService."""
-    service = DeviceStateService(sqlite_service)
+    service = DeviceStateService(sqlmodel_service)
     await service.initialize()
     yield service
     await service.close()
@@ -63,10 +64,10 @@ def subscription_manager() -> SubscriptionManager:
 
 @pytest_asyncio.fixture
 async def weather_service(
-    sqlite_service: SQLite3Service,
+    sqlmodel_service: SQLModelService,
 ) -> AsyncGenerator[WeatherService, None]:
     """Create and initialize a WeatherService."""
-    service = WeatherService(sqlite_service)
+    service = WeatherService(sqlmodel_service)
     await service.initialize()
     yield service
     await service.close()
