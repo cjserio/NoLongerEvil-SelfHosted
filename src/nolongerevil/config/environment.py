@@ -77,10 +77,6 @@ class Settings(BaseSettings):
     )
 
     # Database configuration
-    sqlite3_enabled: bool = Field(
-        default=True,
-        description="Use SQLite3 for persistence",
-    )
     sqlite3_db_path: str = Field(
         default="./data/database.sqlite",
         description="Path to SQLite3 database file",

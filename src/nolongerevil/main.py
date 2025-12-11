@@ -1,7 +1,6 @@
 """Main application entry point with dual-port servers."""
 
 import asyncio
-import json
 import signal
 import ssl
 from collections.abc import Awaitable, Callable
@@ -27,11 +26,11 @@ from nolongerevil.services.weather_service import WeatherService
 logger = get_logger(__name__)
 
 
-async def ensure_homeassistant_user(storage: SQLite3Service) -> None:
+async def ensure_homeassistant_user(storage: SQLModelService) -> None:
     """Ensure the homeassistant user exists in the database.
 
     Args:
-        storage: SQLite3 storage service
+        storage: SQLModel storage service
     """
     user_id = "homeassistant"
     existing_user = await storage.get_user(user_id)
@@ -49,12 +48,14 @@ async def ensure_homeassistant_user(storage: SQLite3Service) -> None:
     logger.info(f"Created user '{user_id}'")
 
 
-async def initialize_mqtt_config(storage: SQLite3Service) -> None:
+async def initialize_mqtt_config(storage: SQLModelService) -> None:
     """Initialize MQTT configuration from environment variables.
 
     Args:
-        storage: SQLite3 storage service
+        storage: SQLModel storage service
     """
+    from nolongerevil.lib.types import IntegrationConfig
+
     if not settings.mqtt_host:
         logger.warning("MQTT not configured - no MQTT_HOST environment variable")
         return
@@ -78,31 +79,26 @@ async def initialize_mqtt_config(storage: SQLite3Service) -> None:
         mqtt_config["password"] = settings.mqtt_password
 
     user_id = "homeassistant"
-    config_json = json.dumps(mqtt_config)
-    now_ms = int(datetime.now().timestamp() * 1000)
 
     # Check if integration exists
-    async with storage.db.execute(
-        "SELECT userId FROM integrations WHERE userId = ? AND type = ?",
-        (user_id, "mqtt"),
-    ) as cursor:
-        existing = await cursor.fetchone()
+    existing_integrations = await storage.get_integrations(user_id)
+    existing_mqtt = next((i for i in existing_integrations if i.type == "mqtt"), None)
 
-    if existing:
-        # Update existing
-        await storage.db.execute(
-            "UPDATE integrations SET enabled = ?, config = ?, updatedAt = ? WHERE userId = ? AND type = ?",
-            (1, config_json, now_ms, user_id, "mqtt"),
-        )
-        await storage.db.commit()
+    now = datetime.now()
+    integration = IntegrationConfig(
+        user_id=user_id,
+        type="mqtt",
+        enabled=True,
+        config=mqtt_config,
+        created_at=existing_mqtt.created_at if existing_mqtt else now,
+        updated_at=now,
+    )
+
+    await storage.upsert_integration(integration)
+
+    if existing_mqtt:
         logger.info("Updated MQTT integration config")
     else:
-        # Insert new
-        await storage.db.execute(
-            "INSERT INTO integrations (userId, type, enabled, config, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, "mqtt", 1, config_json, now_ms, now_ms),
-        )
-        await storage.db.commit()
         logger.info("Created MQTT integration config")
 
     logger.info(f"MQTT configured: broker={broker_url}, prefix={settings.mqtt_topic_prefix}")
@@ -155,7 +151,7 @@ def create_control_app(
     state_service: DeviceStateService,
     subscription_manager: SubscriptionManager,
     device_availability: DeviceAvailability,
-    storage: SQLite3Service | None = None,
+    storage: SQLModelService | None = None,
 ) -> web.Application:
     """Create the control API application.
 
@@ -169,7 +165,7 @@ def create_control_app(
         state_service: Device state service
         subscription_manager: Subscription manager
         device_availability: Device availability service
-        storage: SQLite3 storage service (optional, for registration routes)
+        storage: SQLModel storage service (optional, for registration routes)
 
     Returns:
         aiohttp Application
@@ -248,6 +244,7 @@ async def run_server() -> None:
     # Initialize storage with SQLModel
     logger.info("Initializing SQLModel storage backend")
     storage = SQLModelService()
+    await storage.initialize()
 
     # Initialize user and MQTT configuration
     await ensure_homeassistant_user(storage)

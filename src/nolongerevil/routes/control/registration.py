@@ -10,8 +10,8 @@ from datetime import datetime
 from aiohttp import web
 
 from nolongerevil.lib.logger import get_logger
-from nolongerevil.lib.types import DeviceOwner, UserInfo
-from nolongerevil.services.sqlite3_service import SQLite3Service
+from nolongerevil.lib.types import DeviceOwner, IntegrationConfig, UserInfo
+from nolongerevil.services.sqlmodel_service import SQLModelService
 
 logger = get_logger(__name__)
 
@@ -61,7 +61,7 @@ async def handle_register(request: web.Request) -> web.Response:
             status=400,
         )
 
-    storage: SQLite3Service = request.app["storage"]
+    storage: SQLModelService = request.app["storage"]
 
     # Get the entry key to find the serial
     entry_key = await storage.get_entry_key(code)
@@ -88,9 +88,7 @@ async def handle_register(request: web.Request) -> web.Response:
     # Claim the entry key
     claimed = await storage.claim_entry_key(code, user_id)
     if not claimed:
-        return web.json_response(
-            {"success": False, "message": "Failed to claim entry key"}
-        )
+        return web.json_response({"success": False, "message": "Failed to claim entry key"})
 
     serial = entry_key.serial
 
@@ -128,21 +126,21 @@ async def handle_registered_devices(request: web.Request) -> web.Response:
     """
     user_id = request.query.get("userId", "homeassistant")
 
-    storage: SQLite3Service = request.app["storage"]
+    storage: SQLModelService = request.app["storage"]
 
-    # Get all device ownership records for the user
-    async with storage.db.execute(
-        """
-        SELECT serial, createdAt
-        FROM deviceOwners
-        WHERE userId = ?
-        ORDER BY createdAt DESC
-        """,
-        (user_id,),
-    ) as cursor:
-        rows = await cursor.fetchall()
+    # Get all device serials for the user
+    device_serials = await storage.get_user_devices(user_id)
 
-    devices = [{"serial": row["serial"], "createdAt": row["createdAt"]} for row in rows]
+    # Get ownership details for each device
+    devices: list[dict[str, str | int]] = []
+    for serial in device_serials:
+        owner = await storage.get_device_owner(serial)
+        if owner:
+            created_at_ms = int(owner.created_at.timestamp() * 1000)
+            devices.append({"serial": serial, "createdAt": created_at_ms})
+
+    # Sort by createdAt descending
+    devices.sort(key=lambda d: int(d["createdAt"]), reverse=True)
 
     return web.json_response(devices)
 
@@ -177,25 +175,17 @@ async def handle_delete_registered_device(request: web.Request) -> web.Response:
 
     user_id = request.query.get("userId", "homeassistant")
 
-    storage: SQLite3Service = request.app["storage"]
+    storage: SQLModelService = request.app["storage"]
 
     # Delete the ownership record
-    cursor = await storage.db.execute(
-        "DELETE FROM deviceOwners WHERE serial = ? AND userId = ?",
-        (serial, user_id),
-    )
-    await storage.db.commit()
+    deleted = await storage.delete_device_owner(serial, user_id)
 
-    if cursor.rowcount and cursor.rowcount > 0:
+    if deleted:
         logger.info(f"Deleted device {serial} for user {user_id}")
-        return web.json_response(
-            {"success": True, "message": f"Device {serial} deleted"}
-        )
+        return web.json_response({"success": True, "message": f"Device {serial} deleted"})
     else:
         logger.warning(f"Device {serial} not found for user {user_id}")
-        return web.json_response(
-            {"success": False, "message": f"Device {serial} not found"}
-        )
+        return web.json_response({"success": False, "message": f"Device {serial} not found"})
 
 
 async def handle_ensure_user(request: web.Request) -> web.Response:
@@ -229,7 +219,7 @@ async def handle_ensure_user(request: web.Request) -> web.Response:
 
     email = body.get("email", f"{user_id}@local")
 
-    storage: SQLite3Service = request.app["storage"]
+    storage: SQLModelService = request.app["storage"]
 
     # Check if user already exists
     existing_user = await storage.get_user(user_id)
@@ -297,49 +287,42 @@ async def handle_mqtt_config(request: web.Request) -> web.Response:
     # Remove None values
     mqtt_config = {k: v for k, v in mqtt_config.items() if v is not None}
 
-    storage: SQLite3Service = request.app["storage"]
+    storage: SQLModelService = request.app["storage"]
     user_id = "homeassistant"
 
     # Check if integration exists
-    async with storage.db.execute(
-        "SELECT userId FROM integrations WHERE userId = ? AND type = ?",
-        (user_id, "mqtt"),
-    ) as cursor:
-        existing = await cursor.fetchone()
+    existing_integrations = await storage.get_integrations(user_id)
+    existing_mqtt = next((i for i in existing_integrations if i.type == "mqtt"), None)
 
-    import json
-    config_json = json.dumps(mqtt_config)
-    now_ms = int(datetime.now().timestamp() * 1000)
+    now = datetime.now()
+    integration = IntegrationConfig(
+        user_id=user_id,
+        type="mqtt",
+        enabled=True,
+        config=mqtt_config,
+        created_at=existing_mqtt.created_at if existing_mqtt else now,
+        updated_at=now,
+    )
 
-    if existing:
-        # Update existing
-        await storage.db.execute(
-            "UPDATE integrations SET enabled = ?, config = ?, updatedAt = ? WHERE userId = ? AND type = ?",
-            (1, config_json, now_ms, user_id, "mqtt"),
-        )
-        await storage.db.commit()
+    await storage.upsert_integration(integration)
+
+    if existing_mqtt:
         logger.info(f"Updated MQTT integration config for {user_id}")
         return web.json_response({"success": True, "created": False})
     else:
-        # Insert new
-        await storage.db.execute(
-            "INSERT INTO integrations (userId, type, enabled, config, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, "mqtt", 1, config_json, now_ms, now_ms),
-        )
-        await storage.db.commit()
         logger.info(f"Created MQTT integration config for {user_id}")
         return web.json_response({"success": True, "created": True})
 
 
 def create_registration_routes(
     app: web.Application,
-    storage: SQLite3Service,
+    storage: SQLModelService,
 ) -> None:
     """Register registration routes.
 
     Args:
         app: aiohttp application
-        storage: SQLite3 storage service
+        storage: SQLModel storage service
     """
     app["storage"] = storage
 

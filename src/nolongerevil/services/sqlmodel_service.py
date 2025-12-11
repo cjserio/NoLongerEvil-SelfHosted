@@ -354,6 +354,20 @@ class SQLModelService(AbstractDeviceStateManager):
             models = result.scalars().all()
             return [model.serial for model in models]
 
+    async def delete_device_owner(self, serial: str, user_id: str) -> bool:
+        """Delete device ownership record."""
+        from sqlalchemy import delete
+
+        async with self._session_maker() as session:
+            result = await session.execute(
+                delete(DeviceOwnerModel).where(
+                    DeviceOwnerModel.serial == serial,
+                    DeviceOwnerModel.userId == user_id,
+                )
+            )
+            await session.commit()
+            return result.rowcount > 0
+
     # Weather operations
 
     async def get_cached_weather(self, postal_code: str, country: str) -> WeatherData | None:

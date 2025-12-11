@@ -4,7 +4,7 @@ from aiohttp import web
 
 from nolongerevil.services.device_availability import DeviceAvailability
 from nolongerevil.services.device_state_service import DeviceStateService
-from nolongerevil.services.sqlite3_service import SQLite3Service
+from nolongerevil.services.sqlmodel_service import SQLModelService
 from nolongerevil.services.subscription_manager import SubscriptionManager
 
 from .command import create_command_routes
@@ -18,7 +18,7 @@ def setup_control_routes(
     state_service: DeviceStateService,
     subscription_manager: SubscriptionManager,
     device_availability: DeviceAvailability,
-    storage: SQLite3Service | None = None,
+    storage: SQLModelService | None = None,
 ) -> None:
     """Set up all Control API routes.
 
@@ -27,7 +27,7 @@ def setup_control_routes(
         state_service: Device state service
         subscription_manager: Subscription manager
         device_availability: Device availability service
-        storage: SQLite3 storage service (optional, for registration routes)
+        storage: SQLModel storage service (optional, for registration routes)
     """
     create_command_routes(app, state_service, subscription_manager)
     create_status_routes(app, state_service, subscription_manager, device_availability)
