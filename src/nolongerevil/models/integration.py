@@ -16,9 +16,7 @@ class IntegrationConfigModel(SQLModel, table=True):
     createdAt: int  # Millisecond timestamp
     updatedAt: int  # Millisecond timestamp
 
-    __table_args__ = (
-        Index("idx_integrations_enabled", "enabled"),
-    )
+    __table_args__ = (Index("idx_integrations_enabled", "enabled"),)
 
 
 class WeatherDataModel(SQLModel, table=True):

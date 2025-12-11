@@ -1,7 +1,5 @@
 """Device sharing-related SQLModel models."""
 
-from typing import Optional
-
 from sqlalchemy import Index
 from sqlmodel import Field, SQLModel
 
@@ -39,5 +37,5 @@ class DeviceShareInviteModel(SQLModel, table=True):
     status: str  # Enum value stored as string ("pending", "accepted", "expired", "revoked")
     invitedAt: int  # Millisecond timestamp
     expiresAt: int  # Millisecond timestamp
-    acceptedAt: Optional[int] = None  # Millisecond timestamp
-    sharedWithUserId: Optional[str] = None
+    acceptedAt: int | None = None  # Millisecond timestamp
+    sharedWithUserId: str | None = None

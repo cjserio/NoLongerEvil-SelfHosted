@@ -94,6 +94,7 @@ known-first-party = ["nolongerevil"]
 # Unused arguments kept for API compatibility
 "src/nolongerevil/integrations/mqtt/helpers.py" = ["ARG001"]
 "src/nolongerevil/integrations/mqtt/mqtt_integration.py" = ["ARG002"]
+"src/nolongerevil/models/base.py" = ["ARG002"]  # SQLAlchemy TypeDecorator interface requires dialect param
 
 [tool.mypy]
 python_version = "3.11"

@@ -8,19 +8,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlmodel import SQLModel, select
 
 from nolongerevil.config import settings
 from nolongerevil.lib.logger import get_logger
 from nolongerevil.lib.types import (
     APIKey,
-    APIKeyPermissions,
     DeviceObject,
     DeviceOwner,
     DeviceShare,
     DeviceShareInvite,
-    DeviceShareInviteStatus,
     DeviceSharePermission,
     EntryKey,
     IntegrationConfig,
@@ -212,9 +215,7 @@ class SQLModelService(AbstractDeviceStateManager):
     async def get_entry_key(self, code: str) -> EntryKey | None:
         """Get an entry key by code."""
         async with self._session_maker() as session:
-            result = await session.execute(
-                select(EntryKeyModel).where(EntryKeyModel.code == code)
-            )
+            result = await session.execute(select(EntryKeyModel).where(EntryKeyModel.code == code))
             model = result.scalar_one_or_none()
             return model_to_entry_key(model) if model else None
 
@@ -229,6 +230,21 @@ class SQLModelService(AbstractDeviceStateManager):
                     EntryKeyModel.expiresAt > now,
                     EntryKeyModel.claimedBy.is_(None),
                 )
+                .order_by(EntryKeyModel.createdAt.desc())
+                .limit(1)
+            )
+            model = result.scalar_one_or_none()
+            return model_to_entry_key(model) if model else None
+
+    async def get_latest_entry_key_by_serial(self, serial: str) -> EntryKey | None:
+        """Get the most recent entry key for a serial (including claimed or expired keys).
+
+        This is used for checking pairing status.
+        """
+        async with self._session_maker() as session:
+            result = await session.execute(
+                select(EntryKeyModel)
+                .where(EntryKeyModel.serial == serial)
                 .order_by(EntryKeyModel.createdAt.desc())
                 .limit(1)
             )
@@ -391,9 +407,7 @@ class SQLModelService(AbstractDeviceStateManager):
     async def update_api_key_last_used(self, key_id: str) -> None:
         """Update the last used timestamp of an API key."""
         async with self._session_maker() as session:
-            result = await session.execute(
-                select(APIKeyModel).where(APIKeyModel.id == int(key_id))
-            )
+            result = await session.execute(select(APIKeyModel).where(APIKeyModel.id == int(key_id)))
             model = result.scalar_one_or_none()
 
             if model:
@@ -403,9 +417,7 @@ class SQLModelService(AbstractDeviceStateManager):
     async def delete_api_key(self, key_id: str) -> bool:
         """Delete an API key."""
         async with self._session_maker() as session:
-            result = await session.execute(
-                select(APIKeyModel).where(APIKeyModel.id == int(key_id))
-            )
+            result = await session.execute(select(APIKeyModel).where(APIKeyModel.id == int(key_id)))
             model = result.scalar_one_or_none()
 
             if model:
@@ -417,9 +429,7 @@ class SQLModelService(AbstractDeviceStateManager):
     async def get_user_api_keys(self, user_id: str) -> list[APIKey]:
         """Get all API keys for a user."""
         async with self._session_maker() as session:
-            result = await session.execute(
-                select(APIKeyModel).where(APIKeyModel.userId == user_id)
-            )
+            result = await session.execute(select(APIKeyModel).where(APIKeyModel.userId == user_id))
             models = result.scalars().all()
             return [model_to_api_key(model) for model in models]
 

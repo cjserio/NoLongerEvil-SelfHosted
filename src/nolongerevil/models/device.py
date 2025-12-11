@@ -1,7 +1,5 @@
 """Device-related SQLModel models."""
 
-from typing import Optional
-
 from sqlalchemy import Column, Index, Text
 from sqlmodel import Field, SQLModel
 
@@ -19,9 +17,7 @@ class DeviceObjectModel(SQLModel, table=True):
     value: str = Field(sa_column=Column(Text))  # JSON stored as text
     updatedAt: int  # Millisecond timestamp
 
-    __table_args__ = (
-        Index("idx_states_serial", "serial"),
-    )
+    __table_args__ = (Index("idx_states_serial", "serial"),)
 
 
 class SessionModel(SQLModel, table=True):
@@ -35,12 +31,10 @@ class SessionModel(SQLModel, table=True):
     startedAt: int  # Millisecond timestamp
     lastActivity: int  # Millisecond timestamp
     open: int  # Boolean as integer (0/1)
-    client: Optional[str] = None
-    meta: Optional[str] = Field(default=None, sa_column=Column(Text))  # JSON as text
+    client: str | None = None
+    meta: str | None = Field(default=None, sa_column=Column(Text))  # JSON as text
 
-    __table_args__ = (
-        Index("idx_sessions_serial", "serial"),
-    )
+    __table_args__ = (Index("idx_sessions_serial", "serial"),)
 
 
 class LogModel(SQLModel, table=True):
@@ -50,10 +44,10 @@ class LogModel(SQLModel, table=True):
 
     # SQLModel requires a primary key, but logs table doesn't have one
     # We'll add an auto-increment id column
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     ts: int  # Millisecond timestamp
     route: str
-    serial: Optional[str] = None
+    serial: str | None = None
     req: str = Field(sa_column=Column(Text))  # JSON as text
     res: str = Field(sa_column=Column(Text))  # JSON as text
 

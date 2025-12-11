@@ -164,18 +164,29 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                 merged_value["weave_device_id"] = weave_device_id
 
             # Apply object-type specific logic
-            object_type, _ = parse_object_key(object_key)
-            if object_type == "device":
+            if object_key == f"device.{serial}":
                 # Preserve fan timer state for device objects
                 merged_value = preserve_fan_timer_state(existing_value, merged_value, serial)
 
-                # Auto-assign structure_id based on device owner
-                device_owner = await state_service.storage.get_device_owner(serial)
-                if device_owner:
-                    merged_value = assign_structure_id(merged_value, device_owner.user_id, serial)
+                # Auto-assign structure_id based on device owner if needed
+                from nolongerevil.utils.structure_assignment import needs_structure_id
 
-                    # Sync user state when away or postal_code changes
-                    if "away" in value or "postal_code" in value:
+                if needs_structure_id(merged_value):
+                    device_owner = await state_service.storage.get_device_owner(serial)
+                    if device_owner:
+                        result = assign_structure_id(merged_value, device_owner.user_id, serial)
+                        if result.get("assigned"):
+                            await state_service.storage.update_user_away_status(
+                                device_owner.user_id
+                            )
+                            await state_service.storage.sync_user_weather_from_device(
+                                device_owner.user_id
+                            )
+
+                # Sync user state when away or postal_code changes
+                if "away" in value or "postal_code" in value:
+                    device_owner = await state_service.storage.get_device_owner(serial)
+                    if device_owner:
                         await state_service.storage.update_user_away_status(device_owner.user_id)
                         await state_service.storage.sync_user_weather_from_device(
                             device_owner.user_id
@@ -233,17 +244,18 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
             continue
 
         # Check if server has newer data
-        # Prioritize revision comparison - timestamps can be inconsistent (seconds vs ms)
         server_revision_higher = response_obj.object_revision > client_revision
-        client_revision_higher = client_revision > response_obj.object_revision
+        server_timestamp_higher = response_obj.object_timestamp > client_timestamp
 
-        if server_revision_higher:
-            # Server has newer revision - send our data to device
+        if server_revision_higher or server_timestamp_higher:
+            # Server has newer data - send our data to device
             outdated_objects.append(response_obj)
-        elif client_revision_higher:
-            # Client has newer revision - merge their data
+        elif (
+            client_revision > response_obj.object_revision
+            or client_timestamp > response_obj.object_timestamp
+        ):
+            # Client has newer data - merge their data
             objects_to_merge.append((client_obj, response_obj))
-        # If revisions are equal, check timestamps (but be lenient due to potential scale differences)
 
     # Merge client updates that are newer than server
     for client_obj, server_obj in objects_to_merge:
@@ -270,7 +282,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         )
         for obj in formatted_objs[:3]:
             logger.debug(
-                f"  Response: key={obj.get('object_key')} rev={obj.get('object_revision')} ts={obj.get('object_timestamp')}"
+                f"  Response: key={obj.get('object_key')} rev={obj.get('object_revision')} ts={obj.get('object_timestamp')} value={obj.get('value')}"
             )
         response_data = {"objects": formatted_objs}
         return web.json_response(
@@ -382,8 +394,7 @@ async def handle_transport_put(request: web.Request) -> web.Response:
             merged_value["weave_device_id"] = weave_device_id
 
         # Preserve fan timer for device objects
-        object_type, _ = parse_object_key(object_key)
-        if object_type == "device":
+        if object_key == f"device.{serial}":
             device_object_changed = True
             merged_value = preserve_fan_timer_state(existing_value, merged_value, serial)
 
@@ -459,11 +470,11 @@ def create_transport_routes(
     # Device object listing - specific route first
     app.router.add_get("/nest/transport/device/{serial}", handle_transport_get)
 
-    # Long-poll subscription - both direct and versioned paths
+    # Long-poll subscription - both direct and versioned paths (e.g., /nest/transport, /nest/transport/v7/subscribe)
     app.router.add_post("/nest/transport", handle_transport_subscribe)
     app.router.add_post("/nest/transport/{version}/subscribe", handle_transport_subscribe)
 
-    # State updates - both direct and versioned paths
+    # State updates - both direct and versioned paths (e.g., /nest/transport/put, /nest/transport/v7/put)
     app.router.add_post("/nest/transport/put", handle_transport_put)
     app.router.add_post("/nest/transport/{version}/put", handle_transport_put)
 

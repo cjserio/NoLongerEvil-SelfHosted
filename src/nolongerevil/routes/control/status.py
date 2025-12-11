@@ -201,6 +201,74 @@ async def handle_stats(request: web.Request) -> web.Response:
     return web.json_response(stats)
 
 
+async def handle_dismiss_pairing(request: web.Request) -> web.Response:
+    """Handle POST /api/dismiss-pairing/{serial} - dismiss pairing dialog for a device.
+
+    This is called after successful device registration to dismiss the "confirm-pairing"
+    alert dialog on the physical thermostat.
+
+    Path parameters:
+        serial: Device serial
+
+    Returns:
+        JSON response with result
+    """
+    serial = request.match_info.get("serial")
+    if not serial:
+        return web.json_response(
+            {"error": "Serial required"},
+            status=400,
+        )
+
+    state_service: DeviceStateService = request.app["state_service"]
+    subscription_manager: SubscriptionManager = request.app["subscription_manager"]
+
+    # Delete the pairing alert dialog
+    alert_dialog_key = f"device_alert_dialog.{serial}"
+    existing_dialog = state_service.get_object(serial, alert_dialog_key)
+
+    if existing_dialog:
+        # Update the alert dialog to dismissed state (empty dialog_id)
+        # Don't delete it - keep it with incremented revision so device knows it changed
+        import time
+        from datetime import datetime
+
+        from nolongerevil.lib.types import DeviceObject
+
+        dismissed_dialog = DeviceObject(
+            serial=serial,
+            object_key=alert_dialog_key,
+            object_revision=existing_dialog.object_revision + 1,
+            object_timestamp=int(time.time() * 1000),
+            value={},  # Completely empty value to dismiss the dialog
+            updated_at=datetime.now(),
+        )
+
+        # Save the dismissed state
+        await state_service.upsert_object(dismissed_dialog)
+        logger.info(
+            f"Dismissed pairing dialog for {serial} (rev {dismissed_dialog.object_revision})"
+        )
+
+        # Notify all subscribers with the dismissed dialog
+        await subscription_manager.notify_all_subscribers(serial, [dismissed_dialog])
+
+        return web.json_response(
+            {
+                "success": True,
+                "message": f"Pairing dialog dismissed for {serial}",
+            }
+        )
+    else:
+        logger.debug(f"No pairing dialog found for {serial}")
+        return web.json_response(
+            {
+                "success": True,
+                "message": f"No pairing dialog to dismiss for {serial}",
+            }
+        )
+
+
 async def handle_delete_device(request: web.Request) -> web.Response:
     """Handle DELETE /api/device - delete a device by serial.
 
@@ -270,4 +338,5 @@ def create_status_routes(
     app.router.add_get("/api/devices", handle_devices)
     app.router.add_post("/notify-device", handle_notify_device)
     app.router.add_get("/api/stats", handle_stats)
+    app.router.add_post("/api/dismiss-pairing/{serial}", handle_dismiss_pairing)
     app.router.add_delete("/api/device", handle_delete_device)

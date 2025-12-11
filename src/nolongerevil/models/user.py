@@ -1,7 +1,5 @@
 """User-related SQLModel models."""
 
-from typing import Optional
-
 from sqlalchemy import Index
 from sqlmodel import Field, SQLModel
 
@@ -25,12 +23,10 @@ class EntryKeyModel(SQLModel, table=True):
     serial: str
     createdAt: int  # Millisecond timestamp
     expiresAt: int  # Millisecond timestamp
-    claimedBy: Optional[str] = None
-    claimedAt: Optional[int] = None  # Millisecond timestamp
+    claimedBy: str | None = None
+    claimedAt: int | None = None  # Millisecond timestamp
 
-    __table_args__ = (
-        Index("idx_entryKeys_serial", "serial"),
-    )
+    __table_args__ = (Index("idx_entryKeys_serial", "serial"),)
 
 
 class DeviceOwnerModel(SQLModel, table=True):
@@ -42,6 +38,4 @@ class DeviceOwnerModel(SQLModel, table=True):
     userId: str
     createdAt: int  # Millisecond timestamp
 
-    __table_args__ = (
-        Index("idx_deviceOwners_userId", "userId"),
-    )
+    __table_args__ = (Index("idx_deviceOwners_userId", "userId"),)
