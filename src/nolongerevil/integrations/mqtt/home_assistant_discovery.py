@@ -23,6 +23,23 @@ def build_climate_discovery_payload(
     topic_prefix: str,
     shared_values: dict[str, Any],
 ) -> dict[str, Any]:
+     """Build Home Assistant climate discovery payload.
+    Always uses Celsius - HA handles display conversion based on user preferences.
+    This avoids double-conversion bugs when Nest display unit changes.
+    The discovery config is mode-aware:
+    - heat_cool mode: high/low temperature topics (range with two setpoints)
+    - heat or cool mode: single temperature topic
+    - off mode: no temperature topics (can't set temperature when off)
+    This ensures HA shows the correct UI controls.
+    Args:
+        serial: Device serial
+        device_name: Human-readable device name
+        topic_prefix: MQTT topic prefix
+        shared_values: Shared object values (used to derive current mode)
+    Returns:
+        Discovery payload dictionary
+    """
+    # Derive mode from shared_values
     ha_mode = nest_mode_to_ha(shared_values.get("target_temperature_type"))
 
     payload: dict[str, Any] = {
