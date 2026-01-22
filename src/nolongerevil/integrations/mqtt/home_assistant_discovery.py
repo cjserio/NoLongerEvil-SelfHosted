@@ -81,7 +81,7 @@ def build_climate_discovery_payload(
         "mode_command_topic": f"{topic_prefix}/{serial}/ha/mode/set",
         "mode_state_topic": f"{topic_prefix}/{serial}/ha/mode",
         "modes": HaMode.all(),
-        # HVAC action
+        # HVAC action (heating, cooling, idle, fan, off)
         "action_topic": f"{topic_prefix}/{serial}/ha/action",
         # Fan mode (on, auto)
         "fan_mode_command_topic": f"{topic_prefix}/{serial}/ha/fan_mode/set",
