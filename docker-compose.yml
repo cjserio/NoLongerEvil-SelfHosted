@@ -32,15 +32,22 @@ services:
       # Subscription configuration
       - SUBSCRIPTION_TIMEOUT_MS=0
       - MAX_SUBSCRIPTIONS_PER_DEVICE=100
+      # Subscription timing - server responds at 80% of SUSPEND_TIME_MAX
+      # Values above 120s may cause NAT/firewall idle timeouts to drop connections
+      # SUSPEND_TIME_MAX: 30-300 seconds (default 60)
+      # - SUSPEND_TIME_MAX=60
 
       # Debug configuration
       - DEBUG_LOGGING=false
+      # - DEBUG_LOGS_DIR=./data/debug-logs
+      # - STORE_DEVICE_LOGS=true
 
       # Database configuration
       - SQLITE3_DB_PATH=/app/data/database.sqlite
 
       # MQTT configuration (optional)
-      # - MQTT_BROKER_URL=mqtt://mqtt-broker:1883
+      # - MQTT_HOST=mqtt-broker
+      # - MQTT_PORT=1883
       # - MQTT_TOPIC_PREFIX=nolongerevil
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
