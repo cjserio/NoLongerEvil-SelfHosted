@@ -162,4 +162,4 @@ class TestSubscriptionManager:
         assert stats["total_subscriptions"] == 3
         assert stats["devices_with_subscriptions"] == 2
         assert stats["future_subscriptions"] == 3  # All subscriptions are future-based
-        assert stats["chunked_subscriptions"] == 0
+        assert stats["silent_subscriptions"] == 0

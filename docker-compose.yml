@@ -30,7 +30,6 @@ services:
       - WEATHER_CACHE_TTL_MS=600000
 
       # Subscription configuration
-      - SUBSCRIPTION_TIMEOUT_MS=0
       - MAX_SUBSCRIPTIONS_PER_DEVICE=100
       # Subscription timing - server responds at 80% of SUSPEND_TIME_MAX
       # Values above 120s may cause NAT/firewall idle timeouts to drop connections

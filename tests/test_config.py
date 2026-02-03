@@ -23,16 +23,6 @@ class TestSettings:
         settings = Settings(weather_cache_ttl_ms=300000)
         assert settings.weather_cache_ttl_seconds == 300.0
 
-    def test_subscription_timeout_seconds_infinite(self):
-        """Test infinite subscription timeout."""
-        settings = Settings(subscription_timeout_ms=0)
-        assert settings.subscription_timeout_seconds is None
-
-    def test_subscription_timeout_seconds_finite(self):
-        """Test finite subscription timeout."""
-        settings = Settings(subscription_timeout_ms=30000)
-        assert settings.subscription_timeout_seconds == 30.0
-
     def test_data_dir_property(self):
         """Test data directory property."""
         settings = Settings(sqlite3_db_path="./data/test.sqlite")

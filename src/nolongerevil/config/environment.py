@@ -57,10 +57,6 @@ class Settings(BaseSettings):
     )
 
     # Subscription configuration
-    subscription_timeout_ms: int = Field(
-        default=0,
-        description="Long-poll timeout in milliseconds (0 = infinite)",
-    )
     max_subscriptions_per_device: int = Field(
         default=100,
         description="Maximum concurrent subscriptions per device",
@@ -119,13 +115,6 @@ class Settings(BaseSettings):
     def weather_cache_ttl_seconds(self) -> float:
         """Get weather cache TTL in seconds."""
         return self.weather_cache_ttl_ms / 1000.0
-
-    @property
-    def subscription_timeout_seconds(self) -> float | None:
-        """Get subscription timeout in seconds, or None for infinite."""
-        if self.subscription_timeout_ms == 0:
-            return None
-        return self.subscription_timeout_ms / 1000.0
 
     @property
     def data_dir(self) -> Path:
