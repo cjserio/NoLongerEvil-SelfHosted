@@ -291,39 +291,31 @@ async def handle_transport_subscribe(request: web.Request) -> web.Response:
             )
 
     # Find outdated objects (server has newer data than client)
+    # Per rev/ts spec: timestamp is sole authority
     outdated_objects: list[DeviceObject] = []
     objects_to_merge: list[tuple[dict[str, Any], DeviceObject]] = []
 
     for i, client_obj in enumerate(processed_client_objects):
         response_obj = response_objects[i]
-        client_revision = client_obj.get("object_revision", 0)
         client_timestamp = client_obj.get("object_timestamp", 0)
+        object_key = client_obj.get("object_key", "")
 
-        # If client sent rev=0 and ts=0, they want our full state (resync request)
-        if client_revision == 0 and client_timestamp == 0:
-            object_key = client_obj.get("object_key", "")
-            # Skip user.* objects - device doesn't accept them and loops forever
-            if object_key.startswith("user."):
-                continue
-            # Send our stored state - no need to refresh timestamp since the real
-            # issue was JSON field order (object_key must come after ts/rev)
-            outdated_objects.append(response_obj)
+        # Skip user.* objects - device doesn't accept them and loops forever
+        if object_key.startswith("user."):
             continue
 
-        # Only consider server data "newer" if revision is higher
-        # Timestamp alone shouldn't trigger updates - matching revisions means matching data
-        server_revision_higher = response_obj.object_revision > client_revision
+        # Use timestamp-only comparison (no revision tiebreaker)
+        server_newer = _is_server_newer(
+            response_obj.object_timestamp,
+            client_timestamp,
+        )
 
-        if server_revision_higher:
+        if server_newer:
             # Server has newer data - send our data to device
-            object_key = client_obj.get("object_key", "")
-            # Skip user.* objects - device doesn't accept them and loops forever
-            if object_key.startswith("user."):
-                continue
-            # Send our stored state with its existing timestamp
             outdated_objects.append(response_obj)
-        elif client_revision > response_obj.object_revision:
-            # Client has newer data - merge their data
+        elif client_timestamp > response_obj.object_timestamp:
+            # Client has newer data (timestamp only, no revision tiebreaker)
+            # Equal timestamps = already synced, no merge needed
             objects_to_merge.append((client_obj, response_obj))
 
     # Merge client updates that are newer than server
@@ -475,6 +467,27 @@ async def handle_transport_put(request: web.Request) -> web.Response:
 
         # Get existing state
         server_obj = state_service.get_object(serial, object_key)
+
+        # Check conditional write (if_object_revision must match server's revision)
+        if_rev = client_obj.get("if_object_revision")
+        if if_rev is not None:
+            server_rev = server_obj.object_revision if server_obj else 0
+            if if_rev != server_rev:
+                logger.debug(
+                    f"PUT: Conditional write failed for {object_key}: "
+                    f"if_object_revision={if_rev} != server_revision={server_rev}"
+                )
+                return web.json_response(
+                    {"error": "revision mismatch", "object_key": object_key},
+                    status=409,
+                    headers=_make_response_headers(),
+                )
+
+        # Log base_object_revision (informational only, no rejection)
+        base_rev = client_obj.get("base_object_revision")
+        if base_rev is not None:
+            logger.debug(f"PUT: {object_key} base_object_revision={base_rev}")
+
         existing_value = server_obj.value if server_obj else {}
         merged_value = {**existing_value, **value}
 
@@ -562,6 +575,29 @@ def _values_equal(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
     if a is None or b is None:
         return False
     return a == b
+
+
+def _is_server_newer(server_ts: int, client_ts: int) -> bool:
+    """Determine if server data is newer than client data.
+
+    Per the rev/ts protocol spec:
+    https://github.com/cjserio/nest-thermostat-protocol-docs/blob/main/server_rev_ts_guide.md
+
+    1. Compare timestamps only - larger timestamp wins
+    2. Zero timestamp means "no data" - always yields to non-zero
+    3. Equal timestamps means already synced - no action needed
+    """
+    # Special case: client ts=0 means "no data", server should send its data
+    if client_ts == 0:
+        return True
+
+    # Special case: server ts=0 means "no data", server has nothing to send
+    if server_ts == 0:
+        return False
+
+    # Timestamp comparison only - no revision tiebreaker
+    # Equal timestamps = already synced
+    return server_ts > client_ts
 
 
 def create_transport_routes(
