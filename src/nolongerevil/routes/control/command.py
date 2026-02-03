@@ -59,6 +59,9 @@ async def set_temperature(
         # Single temperature
         values = {"target_temperature": float(value)}
 
+    # Set target_change_pending to wake the display
+    values["target_change_pending"] = True
+
     return validate_and_clamp_temperatures(values, bounds, serial)
 
 
@@ -237,27 +240,31 @@ async def handle_command(request: web.Request) -> web.Response:
                 status=400,
             )
 
-        # Determine target object key
+        # Determine target object key based on command type
+        # Temperature/mode fields are stored in shared.{serial}
         if command == "set_away":
             # Away mode is set on structure object
             shared_obj = state_service.get_object(serial, f"shared.{serial}")
             structure_id = shared_obj.value.get("structure_id") if shared_obj else None
             object_key = f"structure.{structure_id}" if structure_id else f"shared.{serial}"
+        elif command in ("set_temperature", "set_mode"):
+            object_key = f"shared.{serial}"
         else:
             object_key = f"device.{serial}"
 
-        # Update state
-        now = int(time.time())
+        # Update state - increment revision, timestamp auto-corrected by service
+        existing_obj = state_service.get_object(serial, object_key)
+        new_revision = (existing_obj.object_revision if existing_obj else 0) + 1
         updated_obj = await state_service.merge_object_values(
             serial=serial,
             object_key=object_key,
             values=values,
-            revision=now,
-            timestamp=now,
+            revision=new_revision,
+            timestamp=int(time.time() * 1000),
         )
 
-        # Notify subscribers
-        await subscription_manager.notify_subscribers(serial, [updated_obj])
+        # Notify subscribers (both chunked and future-based)
+        await subscription_manager.notify_all_subscribers(serial, [updated_obj])
 
         logger.info(f"Command {command} executed for device {serial}")
 

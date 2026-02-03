@@ -42,6 +42,7 @@ from nolongerevil.lib.types import DeviceStateChange, IntegrationConfig
 
 if TYPE_CHECKING:
     from nolongerevil.services.device_state_service import DeviceStateService
+    from nolongerevil.services.subscription_manager import SubscriptionManager
 
 logger = get_logger(__name__)
 
@@ -53,15 +54,18 @@ class MqttIntegration(BaseIntegration):
         self,
         config: IntegrationConfig,
         state_service: "DeviceStateService",
+        subscription_manager: "SubscriptionManager | None" = None,
     ) -> None:
         """Initialize the MQTT integration.
 
         Args:
             config: Integration configuration
             state_service: Device state service
+            subscription_manager: Subscription manager for pushing updates to devices
         """
         super().__init__(config)
         self._state_service = state_service
+        self._subscription_manager = subscription_manager
         self._client: aiomqtt.Client | None = None
         self._active_client: aiomqtt.Client | None = None
         self._listener_task: asyncio.Task[None] | None = None
@@ -356,6 +360,10 @@ class MqttIntegration(BaseIntegration):
         await self._state_service.upsert_object(obj)
         logger.info(f"Applied raw command to {serial}: {{{field}: {value}}}")
 
+        # Push to subscribed device immediately
+        if self._subscription_manager:
+            await self._subscription_manager.notify_all_subscribers(serial, [obj])
+
     async def _update_shared_value(
         self, serial: str, current_obj: Any, field: str, value: Any
     ) -> None:
@@ -379,6 +387,10 @@ class MqttIntegration(BaseIntegration):
         )
         await self._state_service.upsert_object(obj)
         logger.info(f"Applied MQTT command to {serial}: {{{field}: {value}}}")
+
+        # Push to subscribed device immediately
+        if self._subscription_manager:
+            await self._subscription_manager.notify_all_subscribers(serial, [obj])
 
     async def _update_device_value(
         self, serial: str, current_obj: Any, field: str, value: Any
@@ -404,6 +416,10 @@ class MqttIntegration(BaseIntegration):
         await self._state_service.upsert_object(obj)
         logger.info(f"Applied MQTT command to {serial}: {{{field}: {value}}}")
 
+        # Push to subscribed device immediately
+        if self._subscription_manager:
+            await self._subscription_manager.notify_all_subscribers(serial, [obj])
+
     async def _update_device_fields(
         self, serial: str, current_obj: Any, fields: dict[str, Any]
     ) -> None:
@@ -427,6 +443,10 @@ class MqttIntegration(BaseIntegration):
         )
         await self._state_service.upsert_object(obj)
         logger.info(f"Applied MQTT command to {serial}: {fields}")
+
+        # Push to subscribed device immediately
+        if self._subscription_manager:
+            await self._subscription_manager.notify_all_subscribers(serial, [obj])
 
     async def on_device_state_change(self, change: DeviceStateChange) -> None:
         """Handle device state change by publishing to MQTT."""

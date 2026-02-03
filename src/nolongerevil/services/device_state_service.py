@@ -1,5 +1,6 @@
 """Device state service with in-memory caching."""
 
+import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -31,11 +32,7 @@ class DeviceStateService:
         self._integration_manager: IntegrationManager | None = None
 
     def set_integration_manager(self, manager: "IntegrationManager") -> None:
-        """Set the integration manager for state change notifications.
-
-        Args:
-            manager: Integration manager instance
-        """
+        """Set the integration manager for state change notifications."""
         self._integration_manager = manager
 
     async def initialize(self) -> None:

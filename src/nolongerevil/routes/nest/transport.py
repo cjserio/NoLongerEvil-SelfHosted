@@ -1,12 +1,58 @@
-"""Nest transport endpoint - device state management and subscriptions."""
+"""Nest transport endpoint - device state management and subscriptions.
+
+Subscribe Flow:
+1. Receive POST /subscribe with client's bucket revisions
+2. Compare revisions against server state
+3. IF newer data exists: Send response immediately (headers + JSON + close)
+4. IF NO newer data: Hold connection silently (no headers, no body)
+5. While holding, wait for:
+   - New data arrives → send response, close
+   - Timeout approaching (80% of SUSPEND_TIME_MAX) → send tickle, close
+   - Connection drops → clean up
+
+The device enters sleep mode when no response is being received.
+X-nl-suspend-time-max tells device how long to sleep after disconnect.
+Worst-case push latency = single hold cycle (~48s with 60s suspend max).
+"""
 
 import asyncio
 import json
+import os
 import time
 from datetime import datetime
 from typing import Any
 
 from aiohttp import web
+
+# =============================================================================
+# SUBSCRIPTION TIMING CONFIGURATION
+# =============================================================================
+# SUSPEND_TIME_MAX: Tells device how long to sleep after we disconnect.
+# This is also approximately how long we hold the connection open.
+# We respond at 80% of this time (tickle timeout) to ensure we beat the device's
+# internal timeout and maintain the connection cycle.
+#
+# Higher values = more sleep time, less responsive to commands
+# Lower values = more responsive, but more frequent connections
+#
+# DEFAULT: 60 seconds (we respond at 48s, device reconnects ~10-12s later)
+# =============================================================================
+
+_raw_suspend_max = int(os.environ.get("SUSPEND_TIME_MAX", "60"))
+if _raw_suspend_max < 30:
+    print(f"WARNING: SUSPEND_TIME_MAX={_raw_suspend_max} is too low. Clamping to 30")
+    SUSPEND_TIME_MAX = 30
+elif _raw_suspend_max > 300:
+    print(f"WARNING: SUSPEND_TIME_MAX={_raw_suspend_max} is too high (device will seem unresponsive). Clamping to 300")
+    SUSPEND_TIME_MAX = 300
+else:
+    SUSPEND_TIME_MAX = _raw_suspend_max
+
+# TICKLE_TIMEOUT_PERCENT: When to send a tickle response (as % of SUSPEND_TIME_MAX)
+# At 80%, we respond before the device's sleep timer would expire, ensuring
+# the device reconnects promptly after sleeping.
+TICKLE_TIMEOUT_PERCENT = 0.80
+TICKLE_TIMEOUT = SUSPEND_TIME_MAX * TICKLE_TIMEOUT_PERCENT
 
 from nolongerevil.lib.logger import get_logger
 from nolongerevil.lib.serial_parser import extract_serial_from_request, extract_weave_device_id
@@ -29,12 +75,20 @@ def parse_object_key(object_key: str) -> tuple[str, str]:
 
 
 def format_object_for_response(obj: DeviceObject, include_value: bool = True) -> dict[str, Any]:
-    """Format a device object for JSON response."""
+    """Format a device object for JSON response.
+
+    IMPORTANT: Field order matters! The device parser triggers timestamp/revision
+    application when it encounters "object_key". If object_key comes before
+    object_revision/object_timestamp, the device applies 0s (defaults) instead
+    of the actual values.
+    """
     result: dict[str, Any] = {
-        "serial": obj.serial,
-        "object_key": obj.object_key,
+        # object_revision and object_timestamp MUST come before object_key
+        # (device parses fields in order and applies ts/rev when it sees object_key)
         "object_revision": obj.object_revision,
         "object_timestamp": obj.object_timestamp,
+        "object_key": obj.object_key,
+        "serial": obj.serial,
     }
     if obj.updated_at:
         result["updatedAt"] = int(obj.updated_at.timestamp() * 1000)
@@ -85,10 +139,21 @@ async def handle_transport_get(request: web.Request) -> web.Response:
         for obj in objects
     ]
 
-    return web.json_response({"objects": response_objects})
+    return web.json_response(
+        {"objects": response_objects},
+        headers=_make_response_headers(),
+    )
 
 
-async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse:
+def _make_response_headers() -> dict[str, str]:
+    """Create standard response headers for Nest protocol."""
+    return {
+        "X-nl-service-timestamp": str(int(time.time() * 1000)),
+        "X-nl-suspend-time-max": str(SUSPEND_TIME_MAX),
+    }
+
+
+async def handle_transport_subscribe(request: web.Request) -> web.Response:
     """Handle POST /nest/transport - subscribe to device updates.
 
     This is the main Nest protocol endpoint. It handles:
@@ -110,8 +175,14 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
     objects = body.get("objects", [])
     weave_device_id = extract_weave_device_id(request)
 
+    # Log device-reported wake duration (X-nl-longest-wake is device-to-server only)
+    longest_wake = request.headers.get("X-nl-longest-wake")
+    if longest_wake:
+        logger.debug(f"Device {serial} reported longest-wake: {longest_wake}s")
+
     logger.debug(
-        f"Subscribe from {serial}: chunked={chunked}, {len(objects)} objects, session={session}"
+        f"Subscribe from {serial}: chunked={chunked}, {len(objects)} objects, session={session}, "
+        f"suspend_max={SUSPEND_TIME_MAX}s, tickle_at={TICKLE_TIMEOUT:.0f}s"
     )
     for obj in objects:  # Log all objects
         logger.debug(
@@ -149,6 +220,30 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
             and (object_revision == 0 or object_revision is None)
             and (object_timestamp == 0 or object_timestamp is None)
         )
+
+        # Special case: target_change_pending is transient - device clears it after acknowledging
+        # Always accept target_change_pending:false from device to avoid update loops
+        if (
+            value is not None
+            and object_key.startswith("shared.")
+            and value.get("target_change_pending") is False
+            and server_obj
+            and server_obj.value.get("target_change_pending") is True
+        ):
+            logger.debug(f"Device cleared target_change_pending for {object_key}")
+            updated_value = {**server_obj.value, "target_change_pending": False}
+            await state_service.upsert_object(
+                DeviceObject(
+                    serial=serial,
+                    object_key=object_key,
+                    object_revision=server_obj.object_revision,
+                    object_timestamp=server_obj.object_timestamp,
+                    value=updated_value,
+                    updated_at=datetime.now(),
+                )
+            )
+            # Update server_obj reference for later use
+            server_obj = state_service.get_object(serial, object_key)
 
         if is_update:
             # Device is sending us an update
@@ -234,8 +329,14 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         client_revision = client_obj.get("object_revision", 0)
         client_timestamp = client_obj.get("object_timestamp", 0)
 
-        # If client sent rev=0 and ts=0, they want our full state
+        # If client sent rev=0 and ts=0, they want our full state (resync request)
         if client_revision == 0 and client_timestamp == 0:
+            object_key = client_obj.get("object_key", "")
+            # Skip user.* objects - device doesn't accept them and loops forever
+            if object_key.startswith("user."):
+                continue
+            # Send our stored state - no need to refresh timestamp since the real
+            # issue was JSON field order (object_key must come after ts/rev)
             outdated_objects.append(response_obj)
             continue
 
@@ -245,6 +346,11 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
 
         if server_revision_higher:
             # Server has newer data - send our data to device
+            object_key = client_obj.get("object_key", "")
+            # Skip user.* objects - device doesn't accept them and loops forever
+            if object_key.startswith("user."):
+                continue
+            # Send our stored state with its existing timestamp
             outdated_objects.append(response_obj)
         elif client_revision > response_obj.object_revision:
             # Client has newer data - merge their data
@@ -280,67 +386,91 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         response_data = {"objects": formatted_objs}
         return web.json_response(
             response_data,
-            headers={"X-nl-service-timestamp": str(int(time.time() * 1000))},
-        )
-
-    # No immediate updates - handle subscription
-    if chunked:
-        # Chunked mode - keep connection open
-        response = web.StreamResponse(
-            status=200,
             headers={
-                "Content-Type": "application/json; charset=UTF-8",
-                "Transfer-Encoding": "chunked",
                 "X-nl-service-timestamp": str(int(time.time() * 1000)),
+                "X-nl-suspend-time-max": str(SUSPEND_TIME_MAX),
             },
         )
-        await response.prepare(request)
 
-        # Build subscribed keys map
-        subscribed_keys = {
-            obj.get("object_key"): obj.get("object_revision", 0)
-            for obj in objects
-            if obj.get("object_key")
-        }
+    # =========================================================================
+    # Hold connection silently until data or timeout
+    # =========================================================================
+    # No immediate response. We hold the TCP connection open without sending
+    # any HTTP response. The device can sleep during this time.
+    #
+    # We respond when:
+    # 1. New data arrives (via subscription notification)
+    # 2. Timeout approaching (TICKLE_TIMEOUT seconds)
+    # 3. Connection drops (cleanup)
+    # =========================================================================
 
-        # Add to subscription manager
-        added = await subscription_manager.add_chunked_subscription(
-            serial, session, subscribed_keys, response
-        )
-
-        if not added:
-            await response.write(b'{"error": "Too many subscriptions"}\r\n')
-            await response.write_eof()
-            return response
-
-        logger.debug(f"Added chunked subscription for {serial} (session: {session})")
-
-        # Write an empty chunk to initialize the stream
-        await response.write(b"")
-
-        # Wait for the response to be closed (either by client disconnect or server write_eof)
-        # The subscription manager will write and close when updates arrive
-        try:
-            # Wait indefinitely - the connection will be closed by:
-            # 1. Client disconnect (CancelledError)
-            # 2. Server notification (write_eof called by subscription manager)
-            while True:
-                # Check if the response has been ended
-                if response.prepared and response._payload_writer is None:
-                    break
-                await asyncio.sleep(1)
-        except (asyncio.CancelledError, ConnectionResetError):
-            pass
-        finally:
-            await subscription_manager.remove_chunked_subscription(serial, session, response)
-
-        return response
-    else:
-        # Non-chunked mode - just close
+    if not chunked:
+        # Non-chunked mode - just respond with empty objects
         return web.json_response(
             {"objects": []},
-            headers={"Content-Type": "application/json"},
+            headers=_make_response_headers(),
         )
+
+    # Build subscribed keys map for filtering notifications
+    subscribed_keys = {
+        obj.get("object_key"): obj.get("object_revision", 0)
+        for obj in objects
+        if obj.get("object_key")
+    }
+
+    # Add to subscription manager (creates the notification queue)
+    added = await subscription_manager.add_silent_subscription(
+        serial, session, subscribed_keys
+    )
+
+    if not added:
+        return web.json_response(
+            {"error": "Too many subscriptions"},
+            status=429,
+            headers=_make_response_headers(),
+        )
+
+    logger.debug(f"Holding connection silently for {serial} (session: {session}), timeout at {TICKLE_TIMEOUT:.0f}s")
+
+    notify_queue = subscription_manager.get_subscription_queue(serial, session)
+
+    if notify_queue is None:
+        logger.error(f"Subscription {session}: queue not found after adding")
+        return web.json_response(
+            {"objects": []},
+            headers=_make_response_headers(),
+        )
+
+    try:
+        # Wait for data or timeout
+        try:
+            changed_objects = await asyncio.wait_for(
+                notify_queue.get(), timeout=TICKLE_TIMEOUT
+            )
+            # Real data arrived - send it
+            logger.debug(f"Subscription {session}: sending {len(changed_objects)} pushed objects")
+            return web.json_response(
+                {"objects": changed_objects},
+                headers=_make_response_headers(),
+            )
+
+        except asyncio.TimeoutError:
+            # Timeout - send tickle response (empty objects)
+            logger.debug(f"Subscription {session}: tickle timeout at {TICKLE_TIMEOUT:.0f}s")
+            return web.json_response(
+                {"objects": []},
+                headers=_make_response_headers(),
+            )
+
+    except (asyncio.CancelledError, ConnectionResetError, ConnectionError) as e:
+        logger.debug(f"Subscription {session}: connection error: {e}")
+        return web.json_response(
+            {"objects": []},
+            headers=_make_response_headers(),
+        )
+    finally:
+        logger.debug(f"Removing subscription {session} for {serial}")
+        await subscription_manager.remove_silent_subscription(serial, session)
 
 
 async def handle_transport_put(request: web.Request) -> web.Response:
@@ -425,15 +555,34 @@ async def handle_transport_put(request: web.Request) -> web.Response:
             await state_service.storage.update_user_away_status(device_owner.user_id)
             await state_service.storage.sync_user_weather_from_device(device_owner.user_id)
 
-    # Notify subscribers
+    # Notify subscribers (pushes to silently held connections)
     if response_objects:
-        notified = await subscription_manager.notify_all_chunked(serial, response_objects)
+        notified = await subscription_manager.notify_all_subscribers(serial, response_objects)
         logger.debug(
             f"PUT: Notified {notified} subscriber(s) for {serial}, "
             f"{len(response_objects)} object(s) updated"
         )
 
-    return web.json_response({"objects": response_objects})
+    # Include shared.{serial} in PUT response to ensure device gets temperature updates
+    # This provides a reliable sync point since PUT always gets a response
+    shared_key = f"shared.{serial}"
+    shared_obj = state_service.get_object(serial, shared_key)
+    if shared_obj:
+        # Check if shared wasn't already in response
+        shared_keys_in_response = [obj.get("object_key") for obj in response_objects]
+        if shared_key not in shared_keys_in_response:
+            response_objects.append({
+                "object_key": shared_obj.object_key,
+                "object_revision": shared_obj.object_revision,
+                "object_timestamp": shared_obj.object_timestamp,
+                "value": shared_obj.value,
+            })
+            logger.debug(f"PUT: Added shared.{serial} to response (rev={shared_obj.object_revision})")
+
+    return web.json_response(
+        {"objects": response_objects},
+        headers=_make_response_headers(),
+    )
 
 
 def _values_equal(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:

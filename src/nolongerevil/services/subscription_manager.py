@@ -1,7 +1,12 @@
-"""Subscription manager for long-polling connections."""
+"""Subscription manager for long-polling connections.
+
+Silent subscriptions hold the HTTP connection open without sending any response.
+The notification queue wakes the handler when data arrives. When data is pushed
+to the queue, the transport handler sends a complete HTTP response and closes.
+"""
 
 import asyncio
-import json
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -15,15 +20,25 @@ from nolongerevil.lib.types import DeviceObject
 
 logger = get_logger(__name__)
 
+# If a subscription ended within this window, the next subscribe is a "re-subscribe"
+RESUBSCRIBE_WINDOW_SECONDS = 5.0
+
 
 @dataclass
-class ChunkedSubscription:
-    """A chunked transfer subscription (HTTP connection kept open)."""
+class SilentSubscription:
+    """A silent subscription (connection held open without HTTP response).
+
+    The transport layer holds the HTTP connection open and waits on the
+    notify_queue. When data is pushed to the queue, the transport sends
+    a complete HTTP response and closes.
+    """
 
     serial: str
     session_id: str
     subscribed_keys: dict[str, int]  # object_key -> last known revision
-    response: web.StreamResponse
+    # Queue for delivering notifications to transport layer
+    # Transport loop waits on this; notify puts data here
+    notify_queue: asyncio.Queue[list[dict[str, Any]]] = field(default_factory=asyncio.Queue)
     created_at: datetime = field(default_factory=datetime.now)
 
 
@@ -41,39 +56,41 @@ class PendingSubscription:
 class SubscriptionManager:
     """Manages active long-poll subscriptions.
 
-    Supports two modes:
-    1. Future-based (non-chunked): Returns updates via asyncio.Future
-    2. Chunked: Keeps HTTP connection open and writes updates directly
+    Silent subscriptions:
+    - Connection is held open without sending HTTP response
+    - Notification queue wakes the transport handler when data arrives
+    - Transport sends complete response and closes
+
+    Also supports future-based subscriptions for programmatic use.
     """
 
     def __init__(self) -> None:
         """Initialize the subscription manager."""
         self._subscriptions: dict[str, dict[str, PendingSubscription]] = {}
-        self._chunked_subscriptions: dict[str, dict[str, ChunkedSubscription]] = {}
+        self._silent_subscriptions: dict[str, dict[str, SilentSubscription]] = {}
+        self._last_subscription_end: dict[str, float] = {}  # serial -> timestamp
         self._lock = asyncio.Lock()
 
-    # ========== Chunked Subscription Methods ==========
+    # ========== Silent Subscription Methods ==========
 
-    async def add_chunked_subscription(
+    async def add_silent_subscription(
         self,
         serial: str,
         session_id: str,
         subscribed_keys: dict[str, int],
-        response: web.StreamResponse,
     ) -> bool:
-        """Add a chunked subscription.
+        """Add a silent subscription (connection held without response).
 
         Args:
             serial: Device serial number
             session_id: Session identifier
             subscribed_keys: Map of object_key -> last known revision
-            response: StreamResponse to write updates to
 
         Returns:
             True if added, False if limit exceeded
         """
         async with self._lock:
-            device_subs = self._chunked_subscriptions.get(serial, {})
+            device_subs = self._silent_subscriptions.get(serial, {})
             if len(device_subs) >= settings.max_subscriptions_per_device:
                 logger.warning(
                     f"Max subscriptions ({settings.max_subscriptions_per_device}) "
@@ -81,104 +98,94 @@ class SubscriptionManager:
                 )
                 return False
 
-            subscription = ChunkedSubscription(
+            subscription = SilentSubscription(
                 serial=serial,
                 session_id=session_id,
                 subscribed_keys=subscribed_keys,
-                response=response,
             )
 
-            if serial not in self._chunked_subscriptions:
-                self._chunked_subscriptions[serial] = {}
-            self._chunked_subscriptions[serial][session_id] = subscription
+            if serial not in self._silent_subscriptions:
+                self._silent_subscriptions[serial] = {}
+            self._silent_subscriptions[serial][session_id] = subscription
 
             logger.debug(
-                f"Added chunked subscription {session_id} for device {serial} "
-                f"(total: {len(self._chunked_subscriptions[serial])})"
+                f"Added silent subscription {session_id} for device {serial} "
+                f"(total: {len(self._silent_subscriptions[serial])})"
             )
 
             return True
 
-    async def remove_chunked_subscription(
-        self, serial: str, session_id: str, response: web.StreamResponse | None = None
-    ) -> None:
-        """Remove a chunked subscription.
+    async def remove_silent_subscription(self, serial: str, session_id: str) -> None:
+        """Remove a silent subscription.
 
         Args:
             serial: Device serial number
             session_id: Session identifier
-            response: If provided, only remove if this response matches the stored one.
-                     This prevents race conditions when session IDs are reused.
         """
         async with self._lock:
-            if serial in self._chunked_subscriptions:
-                if session_id in self._chunked_subscriptions[serial]:
-                    # If response provided, only remove if it matches (prevents race condition)
-                    if response is not None:
-                        stored_sub = self._chunked_subscriptions[serial][session_id]
-                        if stored_sub.response is not response:
-                            logger.debug(
-                                f"Skipping removal of {session_id} - response mismatch (reused session)"
-                            )
-                            return
-                    del self._chunked_subscriptions[serial][session_id]
-                    logger.debug(f"Removed chunked subscription {session_id} for {serial}")
+            if serial in self._silent_subscriptions:
+                if session_id in self._silent_subscriptions[serial]:
+                    del self._silent_subscriptions[serial][session_id]
+                    self._last_subscription_end[serial] = time.monotonic()
+                    logger.debug(f"Removed silent subscription {session_id} for {serial}")
 
-                if not self._chunked_subscriptions[serial]:
-                    del self._chunked_subscriptions[serial]
+                if not self._silent_subscriptions[serial]:
+                    del self._silent_subscriptions[serial]
 
-    async def notify_all_chunked(
+    async def notify_silent_subscribers(
         self,
         serial: str,
         changed_objects: list[dict[str, Any]],
     ) -> int:
-        """Notify all chunked subscribers for a device.
+        """Notify all silent subscribers for a device.
+
+        This puts data on each subscription's queue. The transport layer
+        (which is waiting on the queue) will wake up, send the HTTP response,
+        and close the connection.
 
         Args:
             serial: Device serial number
             changed_objects: List of changed object dicts
 
         Returns:
-            Number of subscribers notified
+            Number of subscribers notified (queued)
         """
         notified = 0
 
         async with self._lock:
-            device_subs = self._chunked_subscriptions.get(serial, {})
-            sessions_to_remove = []
+            device_subs = self._silent_subscriptions.get(serial, {})
 
             for session_id, sub in device_subs.items():
                 try:
-                    # Check if response is still writable
-                    if sub.response.task is not None and sub.response.task.done():
-                        sessions_to_remove.append(session_id)
-                        continue
-
-                    # Write the update
-                    response_data = json.dumps({"objects": changed_objects}) + "\r\n"
-                    await sub.response.write(response_data.encode())
-                    await sub.response.write_eof()
-
-                    sessions_to_remove.append(session_id)
+                    # Put data on queue - transport layer will read and respond
+                    sub.notify_queue.put_nowait(changed_objects)
                     notified += 1
-
-                    logger.debug(f"Notified chunked subscriber {session_id} for {serial}")
+                    logger.debug(f"Queued notification for silent subscriber {session_id}")
 
                 except Exception as e:
-                    logger.debug(f"Failed to notify chunked subscriber {session_id}: {e}")
-                    sessions_to_remove.append(session_id)
-
-            # Clean up notified/closed subscriptions
-            for session_id in sessions_to_remove:
-                if session_id in device_subs:
-                    del device_subs[session_id]
-
-            if not device_subs and serial in self._chunked_subscriptions:
-                del self._chunked_subscriptions[serial]
+                    logger.debug(f"Failed to queue notification for {session_id}: {e}")
 
         return notified
 
-    # ========== Future-based Subscription Methods (Legacy) ==========
+    def get_subscription_queue(
+        self, serial: str, session_id: str
+    ) -> asyncio.Queue[list[dict[str, Any]]] | None:
+        """Get the notification queue for a subscription.
+
+        Used by transport layer to wait for notifications.
+
+        Args:
+            serial: Device serial number
+            session_id: Session identifier
+
+        Returns:
+            The notification queue, or None if subscription not found
+        """
+        device_subs = self._silent_subscriptions.get(serial, {})
+        sub = device_subs.get(session_id)
+        return sub.notify_queue if sub else None
+
+    # ========== Future-based Subscription Methods ==========
 
     async def add_subscription(
         self,
@@ -254,38 +261,47 @@ class SubscriptionManager:
     async def notify_all_subscribers(
         self,
         serial: str,
-        updated_objects: list[DeviceObject],
+        updated_objects: list[DeviceObject] | list[dict[str, Any]],
     ) -> int:
-        """Notify all subscribers (both chunked and future-based) for a device.
+        """Notify all subscribers (both silent and future-based) for a device.
 
         Args:
             serial: Device serial number
-            updated_objects: List of updated device objects
+            updated_objects: List of updated device objects (or dicts)
 
         Returns:
             Total number of subscribers notified
         """
         total_notified = 0
 
-        # Format objects for chunked subscribers
-        formatted_objects = [
-            {
-                "serial": obj.serial,
-                "object_key": obj.object_key,
-                "object_revision": obj.object_revision,
-                "object_timestamp": obj.object_timestamp,
-                "value": obj.value,
-            }
-            for obj in updated_objects
-        ]
+        # Handle both DeviceObject and dict inputs
+        if updated_objects and isinstance(updated_objects[0], DeviceObject):
+            # Format objects for subscribers
+            # IMPORTANT: object_revision and object_timestamp MUST come before object_key
+            formatted_objects = [
+                {
+                    "object_revision": obj.object_revision,
+                    "object_timestamp": obj.object_timestamp,
+                    "object_key": obj.object_key,
+                    "serial": obj.serial,
+                    "value": obj.value,
+                }
+                for obj in updated_objects
+            ]
+            device_objects = updated_objects
+        else:
+            # Already formatted dicts
+            formatted_objects = updated_objects
+            device_objects = []
 
-        # Notify chunked subscribers
-        chunked_count = await self.notify_all_chunked(serial, formatted_objects)
-        total_notified += chunked_count
+        # Notify silent subscribers
+        silent_count = await self.notify_silent_subscribers(serial, formatted_objects)
+        total_notified += silent_count
 
-        # Notify future-based subscribers
-        future_count = await self.notify_subscribers(serial, updated_objects)
-        total_notified += future_count
+        # Notify future-based subscribers (if we have DeviceObject list)
+        if device_objects:
+            future_count = await self.notify_subscribers(serial, device_objects)
+            total_notified += future_count
 
         return total_notified
 
@@ -294,32 +310,46 @@ class SubscriptionManager:
     def get_subscription_count(self, serial: str) -> int:
         """Get total subscriptions for a device."""
         future_count = len(self._subscriptions.get(serial, {}))
-        chunked_count = len(self._chunked_subscriptions.get(serial, {}))
-        return future_count + chunked_count
+        silent_count = len(self._silent_subscriptions.get(serial, {}))
+        return future_count + silent_count
 
     def get_total_subscription_count(self) -> int:
         """Get total subscriptions across all devices."""
         future_total = sum(len(subs) for subs in self._subscriptions.values())
-        chunked_total = sum(len(subs) for subs in self._chunked_subscriptions.values())
-        return future_total + chunked_total
+        silent_total = sum(len(subs) for subs in self._silent_subscriptions.values())
+        return future_total + silent_total
 
     def has_active_subscription(self, serial: str) -> bool:
         """Check if device has any active subscription."""
         has_future = serial in self._subscriptions and len(self._subscriptions[serial]) > 0
-        has_chunked = (
-            serial in self._chunked_subscriptions and len(self._chunked_subscriptions[serial]) > 0
+        has_silent = (
+            serial in self._silent_subscriptions and len(self._silent_subscriptions[serial]) > 0
         )
-        return has_future or has_chunked
+        return has_future or has_silent
+
+    def is_resubscribe(self, serial: str) -> bool:
+        """Check if this is a re-subscribe (recent subscription ended).
+
+        Returns True if a subscription for this device ended within the
+        re-subscribe window (typically 5 seconds). This indicates the device
+        is in a normal cycle and we can use standard timing.
+
+        Returns False if this is a fresh subscribe (no recent history).
+        """
+        last_end = self._last_subscription_end.get(serial)
+        if last_end is None:
+            return False
+        return (time.monotonic() - last_end) < RESUBSCRIBE_WINDOW_SECONDS
 
     def get_stats(self) -> dict[str, Any]:
         """Get subscription statistics."""
         return {
             "total_subscriptions": self.get_total_subscription_count(),
             "future_subscriptions": sum(len(subs) for subs in self._subscriptions.values()),
-            "chunked_subscriptions": sum(
-                len(subs) for subs in self._chunked_subscriptions.values()
+            "silent_subscriptions": sum(
+                len(subs) for subs in self._silent_subscriptions.values()
             ),
             "devices_with_subscriptions": len(
-                set(self._subscriptions.keys()) | set(self._chunked_subscriptions.keys())
+                set(self._subscriptions.keys()) | set(self._silent_subscriptions.keys())
             ),
         }
