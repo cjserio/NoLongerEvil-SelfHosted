@@ -558,12 +558,12 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         if obj.get("object_key")
     }
 
-    # Add to subscription manager (creates the notification queue)
-    added = await subscription_manager.add_silent_subscription(
+    # Add to subscription manager (returns subscription object or None)
+    subscription = await subscription_manager.add_silent_subscription(
         serial, session, subscribed_keys
     )
 
-    if not added:
+    if subscription is None:
         # Too many subscriptions - send empty response and close
         logger.warning(f"Too many subscriptions for {serial}")
         await response.write(json.dumps({"objects": []}).encode("utf-8"))
@@ -571,21 +571,15 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         return response
 
     logger.debug(
-        f"Holding chunked connection for {serial} (session: {session}), "
+        f"Holding chunked connection for {serial} (subscription={subscription.id}, session={session}), "
         f"server hold timeout at {settings.connection_hold_timeout:.0f}s (device wakes at {settings.suspend_time_max}s)"
     )
 
-    notify_queue = subscription_manager.get_subscription_queue(serial, session)
+    # Direct queue access - no lookup needed
+    notify_queue = subscription.notify_queue
     data_sent = False
 
     try:
-        if notify_queue is None:
-            logger.error(f"Subscription {session}: queue not found after adding")
-            await response.write(json.dumps({"objects": []}).encode("utf-8"))
-            data_sent = True
-            await response.write_eof()
-            return response
-
         # Wait for data - hold connection until data arrives or device disconnects
         # Let device wake timer fire naturally
         # DO NOT send tickle/empty response - that's for administrative use only
@@ -597,12 +591,12 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                 timeout=settings.connection_hold_timeout,
             )
             # Real data arrived - send it to wake the device
-            logger.debug(f"Subscription {session}: pushing {len(changed_objects)} objects to wake device")
+            logger.debug(f"Subscription {subscription.id}: pushing {len(changed_objects)} objects to wake device")
             body_bytes = json.dumps({"objects": changed_objects}).encode("utf-8")
             await response.write(body_bytes)
             data_sent = True
             logger.info(
-                f"Subscription {session}: write completed, sent {len(body_bytes)} bytes to {serial}"
+                f"Subscription {subscription.id}: write completed, sent {len(body_bytes)} bytes to {serial}"
             )
 
         except asyncio.TimeoutError:
@@ -612,17 +606,17 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
             # This is expected behavior - just close the connection quietly
             # DO NOT send tickle - tickles force immediate reconnect
             logger.debug(
-                f"Subscription {session}: server hold timeout at {settings.connection_hold_timeout:.0f}s - "
+                f"Subscription {subscription.id}: server hold timeout at {settings.connection_hold_timeout:.0f}s - "
                 f"device should have already resubscribed (suspend_time_max={settings.suspend_time_max}s)"
             )
 
     except (asyncio.CancelledError, ConnectionResetError, ConnectionError) as e:
         # Connection closed by device (it went to sleep) - this is normal
-        logger.info(f"Subscription {session}: connection closed ({type(e).__name__}): {e}")
+        logger.info(f"Subscription {subscription.id}: connection closed ({type(e).__name__}): {e}")
 
     finally:
-        logger.debug(f"Removing subscription {session} for {serial}")
-        await subscription_manager.remove_silent_subscription(serial, session)
+        logger.debug(f"Removing subscription {subscription.id} for {serial}")
+        await subscription_manager.remove_silent_subscription(subscription)
 
     # Only terminate chunked response if we actually sent data
     # Empty body (0\r\n\r\n) is a "tickle" that forces reconnect
@@ -630,9 +624,9 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
     if data_sent:
         try:
             await response.write_eof()
-            logger.debug(f"Subscription {session}: write_eof completed for {serial}")
+            logger.debug(f"Subscription {subscription.id}: write_eof completed for {serial}")
         except (ConnectionResetError, ConnectionError) as e:
-            logger.info(f"Subscription {session}: write_eof failed ({type(e).__name__}): {e}")
+            logger.info(f"Subscription {subscription.id}: write_eof failed ({type(e).__name__}): {e}")
 
     return response
 

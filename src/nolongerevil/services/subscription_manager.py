@@ -31,10 +31,15 @@ class SilentSubscription:
     The transport layer holds the HTTP connection open and waits on the
     notify_queue. When data is pushed to the queue, the transport sends
     a complete HTTP response and closes.
+
+    Each subscription has a unique server-generated ID. The device's session_id
+    is preserved for logging but not used as a key - devices reuse session IDs
+    across requests, which would cause race conditions if used for keying.
     """
 
+    id: str  # Server-generated UUID (unique per subscription)
     serial: str
-    session_id: str
+    session_id: str  # Device-provided, for logging only
     subscribed_keys: dict[str, int]  # object_key -> last known revision
     # Queue for delivering notifications to transport layer
     # Transport loop waits on this; notify puts data here
@@ -78,16 +83,20 @@ class SubscriptionManager:
         serial: str,
         session_id: str,
         subscribed_keys: dict[str, int],
-    ) -> bool:
+    ) -> SilentSubscription | None:
         """Add a silent subscription (connection held without response).
+
+        Returns the subscription object for the caller to use directly. The
+        subscription is keyed by a server-generated UUID, not the device's
+        session_id, to avoid race conditions when the device reuses session IDs.
 
         Args:
             serial: Device serial number
-            session_id: Session identifier
+            session_id: Device's session identifier (for logging only)
             subscribed_keys: Map of object_key -> last known revision
 
         Returns:
-            True if added, False if limit exceeded
+            SilentSubscription if added, None if limit exceeded
         """
         async with self._lock:
             device_subs = self._silent_subscriptions.get(serial, {})
@@ -96,9 +105,10 @@ class SubscriptionManager:
                     f"Max subscriptions ({settings.max_subscriptions_per_device}) "
                     f"exceeded for device {serial}"
                 )
-                return False
+                return None
 
             subscription = SilentSubscription(
+                id=str(uuid.uuid4()),
                 serial=serial,
                 session_id=session_id,
                 subscribed_keys=subscribed_keys,
@@ -106,31 +116,32 @@ class SubscriptionManager:
 
             if serial not in self._silent_subscriptions:
                 self._silent_subscriptions[serial] = {}
-            self._silent_subscriptions[serial][session_id] = subscription
+            self._silent_subscriptions[serial][subscription.id] = subscription
 
             logger.debug(
-                f"Added silent subscription {session_id} for device {serial} "
-                f"(total: {len(self._silent_subscriptions[serial])})"
+                f"Added subscription {subscription.id} for {serial} "
+                f"(session={session_id}, total={len(self._silent_subscriptions[serial])})"
             )
 
-            return True
+            return subscription
 
-    async def remove_silent_subscription(self, serial: str, session_id: str) -> None:
-        """Remove a silent subscription.
+    async def remove_silent_subscription(self, subscription: SilentSubscription) -> None:
+        """Remove a specific subscription by its unique ID.
 
         Args:
-            serial: Device serial number
-            session_id: Session identifier
+            subscription: The subscription object to remove
         """
         async with self._lock:
-            if serial in self._silent_subscriptions:
-                if session_id in self._silent_subscriptions[serial]:
-                    del self._silent_subscriptions[serial][session_id]
-                    self._last_subscription_end[serial] = time.monotonic()
-                    logger.debug(f"Removed silent subscription {session_id} for {serial}")
+            device_subs = self._silent_subscriptions.get(subscription.serial, {})
+            if subscription.id in device_subs:
+                del device_subs[subscription.id]
+                self._last_subscription_end[subscription.serial] = time.monotonic()
+                logger.debug(
+                    f"Removed subscription {subscription.id} for {subscription.serial}"
+                )
 
-                if not self._silent_subscriptions[serial]:
-                    del self._silent_subscriptions[serial]
+            if not device_subs and subscription.serial in self._silent_subscriptions:
+                del self._silent_subscriptions[subscription.serial]
 
     async def notify_silent_subscribers(
         self,
@@ -155,35 +166,17 @@ class SubscriptionManager:
         async with self._lock:
             device_subs = self._silent_subscriptions.get(serial, {})
 
-            for session_id, sub in device_subs.items():
+            for sub_id, sub in device_subs.items():
                 try:
                     # Put data on queue - transport layer will read and respond
                     sub.notify_queue.put_nowait(changed_objects)
                     notified += 1
-                    logger.debug(f"Queued notification for silent subscriber {session_id}")
+                    logger.debug(f"Queued notification for subscription {sub_id}")
 
                 except Exception as e:
-                    logger.debug(f"Failed to queue notification for {session_id}: {e}")
+                    logger.debug(f"Failed to queue notification for {sub_id}: {e}")
 
         return notified
-
-    def get_subscription_queue(
-        self, serial: str, session_id: str
-    ) -> asyncio.Queue[list[dict[str, Any]]] | None:
-        """Get the notification queue for a subscription.
-
-        Used by transport layer to wait for notifications.
-
-        Args:
-            serial: Device serial number
-            session_id: Session identifier
-
-        Returns:
-            The notification queue, or None if subscription not found
-        """
-        device_subs = self._silent_subscriptions.get(serial, {})
-        sub = device_subs.get(session_id)
-        return sub.notify_queue if sub else None
 
     # ========== Future-based Subscription Methods ==========
 
