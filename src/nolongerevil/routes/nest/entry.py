@@ -16,7 +16,7 @@ async def handle_entry(request: web.Request) -> web.Response:
     Returns:
         JSON response with service URLs
     """
-    origin = settings.api_origin
+    origin = settings.api_origin_with_port
 
     # Build service URLs
     response_data = {

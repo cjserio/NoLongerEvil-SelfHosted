@@ -1,6 +1,7 @@
 """Environment configuration with validation."""
 
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -120,6 +121,23 @@ class Settings(BaseSettings):
         if not self.mqtt_host:
             return None
         return f"mqtt://{self.mqtt_host}:{self.mqtt_port}"
+
+    @property
+    def api_origin_with_port(self) -> str:
+        """Get API origin with explicit port for device URLs.
+
+        The Nest device firmware parses ports from URLs by searching backwards
+        for ':' followed by digits. URLs without explicit ports (like
+        http://192.168.20.20/path) fail to extract the port, causing the device
+        to use a stale cached port value for TCP keepalive offload configuration.
+
+        This property ensures the port is always explicit in URLs sent to devices.
+        """
+        parsed = urlparse(self.api_origin)
+        if parsed.port is None:
+            netloc = f"{parsed.hostname}:{self.proxy_port}"
+            return urlunparse(parsed._replace(netloc=netloc))
+        return self.api_origin
 
     @property
     def weather_cache_ttl_seconds(self) -> float:
