@@ -293,8 +293,11 @@ async def run_server() -> None:
     # Get SSL context
     ssl_context = get_ssl_context()
 
-    # Create runners
-    proxy_runner = web.AppRunner(proxy_app)
+    # Create runners with extended keepalive timeout for long-lived connections
+    # Must be > suspend_time_max (default 600s) to avoid premature connection closure
+    # Server idle timeout must exceed X-nl-suspend-time-max sent to device
+    keepalive_timeout = int(settings.connection_hold_timeout) + 60  # Extra buffer
+    proxy_runner = web.AppRunner(proxy_app, keepalive_timeout=keepalive_timeout)
     control_runner = web.AppRunner(control_app)
 
     await proxy_runner.setup()
@@ -353,6 +356,11 @@ def main() -> None:
     logger.info(f"API Origin: {settings.api_origin}")
     logger.info(f"Proxy Port: {settings.proxy_port}")
     logger.info(f"Control Port: {settings.control_port}")
+    logger.info(
+        f"Timing: suspend_time_max={settings.suspend_time_max}s (device sleep), "
+        f"connection_hold={settings.connection_hold_timeout}s (server hold), "
+        f"defer_device_window={settings.defer_device_window}s"
+    )
 
     try:
         asyncio.run(run_server())

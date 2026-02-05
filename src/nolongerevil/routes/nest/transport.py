@@ -1,18 +1,30 @@
 """Nest transport endpoint - device state management and subscriptions.
 
-Subscribe Flow:
+Subscribe Flow (Chunked Mode - Per Protocol Spec):
 1. Receive POST /subscribe with client's bucket revisions
 2. Compare revisions against server state
-3. IF newer data exists: Send response immediately (headers + JSON + close)
-4. IF NO newer data: Hold connection silently (no headers, no body)
-5. While holding, wait for:
-   - New data arrives → send response, close
-   - Timeout approaching (80% of SUSPEND_TIME_MAX) → send tickle, close
-   - Connection drops → clean up
+3. Send HTTP headers immediately with Transfer-Encoding: chunked
+4. Device receives headers → becomes eligible to sleep immediately
+5. Server either:
+   - Sends JSON body immediately if updates available
+   - Holds connection open indefinitely, waiting for server-side data to push
+6. When server has data to push: send body chunk, device wakes instantly
+7. Device processes data, resubscribes
 
-The device enters sleep mode when no response is being received.
-X-nl-suspend-time-max tells device how long to sleep after disconnect.
-Worst-case push latency = single hold cycle (~48s with 60s suspend max).
+Key timing (configurable):
+- suspend_time_max: Device's sleep timer (e.g., 600s). Device wakes and resubscribes
+  even if no data was pushed. This is the FALLBACK mechanism.
+- connection_hold_timeout: Server holds connection suspend_time_max + 60s buffer.
+  Server should NEVER close before device's wake timer fires.
+
+IMPORTANT: Tickles (empty responses) are NOT used for normal operation.
+Tickles are for administrative use only (server shutdown, load balancer migration).
+For normal operation, server holds connection until data is available to push.
+
+Protocol compliance notes:
+- Uses Transfer-Encoding: chunked
+- Supports both request formats: objects array and named bucket fields
+- Implements X-nl-defer-device-window for batching rapid dial changes
 """
 
 import asyncio
@@ -42,6 +54,59 @@ def parse_object_key(object_key: str) -> tuple[str, str]:
     if len(parts) == 2:
         return parts[0], parts[1]
     return object_key, ""
+
+
+# Known bucket types from Nest protocol
+KNOWN_BUCKET_TYPES = {
+    "device", "shared", "structure", "schedule", "custom_schedule", "user",
+    "topaz", "demand_response", "demand_response_event", "where", "kryptonite",
+    "diagnostics", "device_alert_dialog", "servicegroup", "link", "message",
+    "tuneups", "utility", "diamond_sensor_config", "diamond_sensor_event",
+    "rate_plan", "tou", "demand_charge", "demand_charge_event", "hvac_partner",
+    "rcs_settings", "cloud_algo",
+}
+
+
+def parse_subscribe_body(body: dict[str, Any]) -> tuple[str, bool, list[dict[str, Any]]]:
+    """Parse subscribe request body supporting both formats.
+
+    Format 1 (named bucket fields):
+    {
+        "chunked": true,
+        "session": "session_id",
+        "device": {"object_key": "device.SERIAL", "object_revision": 123, ...},
+        "shared": {"object_key": "shared.SERIAL", ...}
+    }
+
+    Format 2 (objects array - alternate):
+    {
+        "chunked": true,
+        "session": "session_id",
+        "objects": [{"object_key": "device.SERIAL", ...}, ...]
+    }
+
+    Returns:
+        Tuple of (session, chunked, objects_list)
+    """
+    session = body.get("session", "")
+    chunked = body.get("chunked", False)
+
+    # Check for objects array first
+    if "objects" in body and isinstance(body["objects"], list):
+        return session, chunked, body["objects"]
+
+    # Parse named bucket fields
+    objects: list[dict[str, Any]] = []
+    for key, value in body.items():
+        if key in KNOWN_BUCKET_TYPES and isinstance(value, dict):
+            # This is a bucket field
+            if "object_key" in value:
+                objects.append(value)
+            else:
+                # Bucket field without object_key - skip or log
+                logger.debug(f"Bucket field '{key}' missing object_key, skipping")
+
+    return session, chunked, objects
 
 
 def format_object_for_response(obj: DeviceObject, include_value: bool = True) -> dict[str, Any]:
@@ -115,21 +180,39 @@ async def handle_transport_get(request: web.Request) -> web.Response:
     )
 
 
-def _make_response_headers() -> dict[str, str]:
-    """Create standard response headers for Nest protocol."""
-    return {
+def _make_response_headers(include_disable_defer: bool = False) -> dict[str, str]:
+    """Create standard response headers for Nest protocol.
+
+    Args:
+        include_disable_defer: If True, include X-nl-disable-defer-window header.
+                               Use when pushing temperature/mode changes to get
+                               immediate device confirmation.
+    """
+    headers = {
         "X-nl-service-timestamp": str(int(time.time() * 1000)),
         "X-nl-suspend-time-max": str(settings.suspend_time_max),
+        "X-nl-defer-device-window": str(settings.defer_device_window),
     }
 
+    if include_disable_defer:
+        headers["X-nl-disable-defer-window"] = str(settings.disable_defer_window)
 
-async def handle_transport_subscribe(request: web.Request) -> web.Response:
+    return headers
+
+
+async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse:
     """Handle POST /nest/transport - subscribe to device updates.
 
     This is the main Nest protocol endpoint. It handles:
     1. Device sending state updates (when value provided with rev/ts = 0)
-    2. Device subscribing to updates (long-poll)
+    2. Device subscribing to updates (long-poll with chunked response)
     3. Server responding with outdated objects if device is behind
+
+    Chunked Response Flow:
+    1. Send headers with Transfer-Encoding: chunked immediately
+    2. Device can sleep after receiving headers
+    3. Server holds connection, waiting for data or timeout
+    4. Send JSON body when data available or on tickle timeout
     """
     serial = extract_serial_from_request(request)
     if not serial:
@@ -140,9 +223,10 @@ async def handle_transport_subscribe(request: web.Request) -> web.Response:
     except json.JSONDecodeError:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
-    session = body.get("session", f"session_{serial}_{int(time.time() * 1000)}")
-    chunked = body.get("chunked", False)
-    objects = body.get("objects", [])
+    # Parse body supporting both formats (named fields or objects array)
+    session, chunked, objects = parse_subscribe_body(body)
+    if not session:
+        session = f"session_{serial}_{int(time.time() * 1000)}"
     weave_device_id = extract_weave_device_id(request)
 
     # Log device-reported wake duration (X-nl-longest-wake is device-to-server only)
@@ -152,7 +236,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.Response:
 
     logger.debug(
         f"Subscribe from {serial}: chunked={chunked}, {len(objects)} objects, session={session}, "
-        f"suspend_max={settings.suspend_time_max}s, tickle_at={settings.tickle_timeout:.0f}s"
+        f"suspend_max={settings.suspend_time_max}s, connection_hold={settings.connection_hold_timeout}s"
     )
     for obj in objects:  # Log all objects
         logger.debug(
@@ -335,44 +419,66 @@ async def handle_transport_subscribe(request: web.Request) -> web.Response:
                 )
             )
 
-    # If there are outdated objects, respond immediately
-    if outdated_objects:
-        formatted_objs = [format_object_for_response(obj) for obj in outdated_objects]
-        logger.debug(
-            f"Responding immediately with {len(outdated_objects)} outdated object(s) for {serial}"
-        )
-        for obj in formatted_objs[:3]:
-            logger.debug(
-                f"  Response: key={obj.get('object_key')} rev={obj.get('object_revision')} ts={obj.get('object_timestamp')} value={obj.get('value')}"
-            )
-        response_data = {"objects": formatted_objs}
-        return web.json_response(
-            response_data,
-            headers={
-                "X-nl-service-timestamp": str(int(time.time() * 1000)),
-                "X-nl-suspend-time-max": str(settings.suspend_time_max),
-            },
-        )
-
     # =========================================================================
-    # Hold connection silently until data or timeout
+    # Response handling - chunked vs non-chunked mode
     # =========================================================================
-    # No immediate response. We hold the TCP connection open without sending
-    # any HTTP response. The device can sleep during this time.
-    #
-    # We respond when:
-    # 1. New data arrives (via subscription notification)
-    # 2. Timeout approaching (settings.tickle_timeout seconds)
-    # 3. Connection drops (cleanup)
+    # Chunked vs non-chunked:
+    # - Chunked: Send headers immediately, device can sleep, then send body
+    # - Non-chunked: Must send body within 7 seconds or device times out
     # =========================================================================
 
     if not chunked:
-        # Non-chunked mode - just respond with empty objects
+        # Non-chunked mode - respond immediately (7s timeout on device side)
+        if outdated_objects:
+            formatted_objs = [format_object_for_response(obj) for obj in outdated_objects]
+            return web.json_response(
+                {"objects": formatted_objs},
+                headers=_make_response_headers(),
+            )
         return web.json_response(
             {"objects": []},
             headers=_make_response_headers(),
         )
 
+    # =========================================================================
+    # Chunked mode
+    # =========================================================================
+    # 1. Send headers with Transfer-Encoding: chunked immediately
+    # 2. Device receives headers → becomes eligible to sleep
+    # 3. If updates available: send body immediately
+    # 4. If no updates: hold connection, wait for data or timeout
+    # 5. Send body (data or empty tickle), close connection
+    # =========================================================================
+
+    # Create chunked streaming response
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "application/json",
+            "Transfer-Encoding": "chunked",
+            "X-nl-service-timestamp": str(int(time.time() * 1000)),
+            "X-nl-suspend-time-max": str(settings.suspend_time_max),
+            "X-nl-defer-device-window": str(settings.defer_device_window),
+            # Note: X-nl-disable-defer-window only sent when pushing temp changes
+        },
+    )
+
+    # Send headers immediately - device can now sleep
+    await response.prepare(request)
+    logger.debug(f"Sent chunked headers to {serial}, device can now sleep")
+
+    # If we have outdated objects, send them immediately
+    if outdated_objects:
+        formatted_objs = [format_object_for_response(obj) for obj in outdated_objects]
+        logger.debug(
+            f"Sending {len(outdated_objects)} outdated object(s) immediately for {serial}"
+        )
+        body_data = json.dumps({"objects": formatted_objs}).encode("utf-8")
+        await response.write(body_data)
+        await response.write_eof()
+        return response
+
+    # No immediate updates - hold connection and wait
     # Build subscribed keys map for filtering notifications
     subscribed_keys = {
         obj.get("object_key"): obj.get("object_revision", 0)
@@ -386,53 +492,77 @@ async def handle_transport_subscribe(request: web.Request) -> web.Response:
     )
 
     if not added:
-        return web.json_response(
-            {"error": "Too many subscriptions"},
-            status=429,
-            headers=_make_response_headers(),
-        )
+        # Too many subscriptions - send empty response and close
+        logger.warning(f"Too many subscriptions for {serial}")
+        await response.write(json.dumps({"objects": []}).encode("utf-8"))
+        await response.write_eof()
+        return response
 
-    logger.debug(f"Holding connection silently for {serial} (session: {session}), timeout at {settings.tickle_timeout:.0f}s")
+    logger.debug(
+        f"Holding chunked connection for {serial} (session: {session}), "
+        f"server hold timeout at {settings.connection_hold_timeout:.0f}s (device wakes at {settings.suspend_time_max}s)"
+    )
 
     notify_queue = subscription_manager.get_subscription_queue(serial, session)
-
-    if notify_queue is None:
-        logger.error(f"Subscription {session}: queue not found after adding")
-        return web.json_response(
-            {"objects": []},
-            headers=_make_response_headers(),
-        )
+    data_sent = False
 
     try:
-        # Wait for data or timeout
+        if notify_queue is None:
+            logger.error(f"Subscription {session}: queue not found after adding")
+            await response.write(json.dumps({"objects": []}).encode("utf-8"))
+            data_sent = True
+            await response.write_eof()
+            return response
+
+        # Wait for data - hold connection until data arrives or device disconnects
+        # Let device wake timer fire naturally
+        # DO NOT send tickle/empty response - that's for administrative use only
         try:
+            # Use connection_hold_timeout which is > suspend_time_max
+            # This ensures we never close before device's wake timer fires
             changed_objects = await asyncio.wait_for(
-                notify_queue.get(), timeout=settings.tickle_timeout
+                notify_queue.get(),
+                timeout=settings.connection_hold_timeout,
             )
-            # Real data arrived - send it
-            logger.debug(f"Subscription {session}: sending {len(changed_objects)} pushed objects")
-            return web.json_response(
-                {"objects": changed_objects},
-                headers=_make_response_headers(),
+            # Real data arrived - send it to wake the device
+            logger.debug(f"Subscription {session}: pushing {len(changed_objects)} objects to wake device")
+            body_bytes = json.dumps({"objects": changed_objects}).encode("utf-8")
+            await response.write(body_bytes)
+            data_sent = True
+            logger.info(
+                f"Subscription {session}: write completed, sent {len(body_bytes)} bytes to {serial}"
             )
 
         except asyncio.TimeoutError:
-            # Timeout - send tickle response (empty objects)
-            logger.debug(f"Subscription {session}: tickle timeout at {settings.tickle_timeout:.0f}s")
-            return web.json_response(
-                {"objects": []},
-                headers=_make_response_headers(),
+            # Server-side timeout expired AFTER device should have already woken up
+            # The device's suspend_time_max timer fires, device wakes, sends new subscribe
+            # If we get here, the device must have disconnected without us noticing
+            # This is expected behavior - just close the connection quietly
+            # DO NOT send tickle - tickles force immediate reconnect
+            logger.debug(
+                f"Subscription {session}: server hold timeout at {settings.connection_hold_timeout:.0f}s - "
+                f"device should have already resubscribed (suspend_time_max={settings.suspend_time_max}s)"
             )
 
     except (asyncio.CancelledError, ConnectionResetError, ConnectionError) as e:
-        logger.debug(f"Subscription {session}: connection error: {e}")
-        return web.json_response(
-            {"objects": []},
-            headers=_make_response_headers(),
-        )
+        # Connection closed by device (it went to sleep) - this is normal
+        logger.info(f"Subscription {session}: connection closed ({type(e).__name__}): {e}")
+
     finally:
         logger.debug(f"Removing subscription {session} for {serial}")
         await subscription_manager.remove_silent_subscription(serial, session)
+
+    # Only terminate chunked response if we actually sent data
+    # Empty body (0\r\n\r\n) is a "tickle" that forces reconnect
+    # On timeout, device has already resubscribed, so don't send tickle
+    if data_sent:
+        try:
+            await response.write_eof()
+            logger.debug(f"Subscription {session}: write_eof completed for {serial}")
+        except (ConnectionResetError, ConnectionError) as e:
+            logger.info(f"Subscription {session}: write_eof failed ({type(e).__name__}): {e}")
+
+    return response
 
 
 async def handle_transport_put(request: web.Request) -> web.Response:

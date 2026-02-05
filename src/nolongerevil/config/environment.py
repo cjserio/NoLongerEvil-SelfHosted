@@ -63,10 +63,28 @@ class Settings(BaseSettings):
         description="Maximum concurrent subscriptions per device",
     )
     suspend_time_max: int = Field(
+        default=600,
+        ge=5,
+        le=900,
+        description="Maximum time (seconds) device will sleep before waking to resubscribe. "
+        "This is a FALLBACK timer - server push wakes device instantly. "
+        "Higher values = better battery life. Recommended: 600 seconds (10 minutes).",
+    )
+    defer_device_window: int = Field(
+        default=15,
+        ge=0,
+        le=3599,
+        description="X-nl-defer-device-window: Delay (seconds) before device sends PUT "
+        "after local changes. Batches 'dial turning' jitter into single request. "
+        "0 = disabled (immediate PUT on every change). Recommended: 15-30.",
+    )
+    disable_defer_window: int = Field(
         default=60,
-        ge=30,
-        le=300,
-        description="Maximum time in seconds before server sends tickle response",
+        ge=0,
+        le=3599,
+        description="X-nl-disable-defer-window: After pushing updates, temporarily disable "
+        "defer delay for this many seconds. Allows immediate confirmation. "
+        "Only sent when server pushes temperature/mode changes.",
     )
 
     # Debug configuration
@@ -145,9 +163,17 @@ class Settings(BaseSettings):
         return self.weather_cache_ttl_ms / 1000.0
 
     @property
-    def tickle_timeout(self) -> float:
-        """Get tickle timeout (80% of suspend_time_max)."""
-        return self.suspend_time_max * 0.80
+    def connection_hold_timeout(self) -> float:
+        """Maximum time to hold a chunked connection open.
+
+        This should be LONGER than suspend_time_max because:
+        1. Server should never close the connection before device wake timer fires
+        2. Device wakes at suspend_time_max and resubscribes
+        3. If server closes early, device loses the connection unnecessarily
+
+        The +60 buffer accounts for network latency and clock skew.
+        """
+        return float(self.suspend_time_max + 60)
 
     @property
     def data_dir(self) -> Path:
