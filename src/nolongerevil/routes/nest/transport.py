@@ -155,18 +155,13 @@ def parse_put_body(body: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
 def format_object_for_response(obj: DeviceObject, include_value: bool = True) -> dict[str, Any]:
     """Format a device object for JSON response.
 
-    IMPORTANT: Field order matters! The device parser triggers timestamp/revision
-    application when it encounters "object_key". If object_key comes before
-    object_revision/object_timestamp, the device applies 0s (defaults) instead
-    of the actual values.
+    IMPORTANT: Field order matters! object_revision and object_timestamp MUST
+    appear before object_key in the JSON, or the device may not apply them correctly.
     """
     result: dict[str, Any] = {
-        # object_revision and object_timestamp MUST come before object_key
-        # (device parses fields in order and applies ts/rev when it sees object_key)
         "object_revision": obj.object_revision,
         "object_timestamp": obj.object_timestamp,
         "object_key": obj.object_key,
-        # Note: serial omitted per spec - device extracts from object_key
     }
     if obj.updated_at:
         result["updatedAt"] = int(obj.updated_at.timestamp() * 1000)
@@ -551,7 +546,6 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         return response
 
     # No immediate updates - hold connection and wait
-    # Build subscribed keys map for filtering notifications
     subscribed_keys = {
         obj.get("object_key"): obj.get("object_revision", 0)
         for obj in objects

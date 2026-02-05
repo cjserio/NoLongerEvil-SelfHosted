@@ -55,9 +55,8 @@ class TestIsServerNewer:
     def test_same_timestamp_different_situations(self) -> None:
         """Equal timestamps always means synced, regardless of context.
 
-        Previously the code used revision as a tiebreaker, but per the firmware
-        analysis (Ghidra), when timestamps match the device considers itself
-        synced with no further action.
+        Previously the code used revision as a tiebreaker, but per the protocol
+        spec, when timestamps match both sides are considered synced.
         """
         # All should return False (synced state)
         assert _is_server_newer(server_ts=1000, client_ts=1000) is False

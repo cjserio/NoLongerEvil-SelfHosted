@@ -144,12 +144,9 @@ class Settings(BaseSettings):
     def api_origin_with_port(self) -> str:
         """Get API origin with explicit port for device URLs.
 
-        The Nest device firmware parses ports from URLs by searching backwards
-        for ':' followed by digits. URLs without explicit ports (like
-        http://192.168.20.20/path) fail to extract the port, causing the device
-        to use a stale cached port value for TCP keepalive offload configuration.
-
-        This property ensures the port is always explicit in URLs sent to devices.
+        URLs without explicit ports may cause the device to fail port extraction,
+        breaking TCP keepalive offload (WoWLAN). This ensures the port is always
+        explicit in URLs sent to devices.
         """
         parsed = urlparse(self.api_origin)
         if parsed.port is None:
