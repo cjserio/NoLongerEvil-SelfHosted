@@ -109,6 +109,49 @@ def parse_subscribe_body(body: dict[str, Any]) -> tuple[str, bool, list[dict[str
     return session, chunked, objects
 
 
+def parse_put_body(body: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """Parse PUT request body supporting both formats.
+
+    Format 1 (objects array):
+    {"session": "...", "objects": [{"object_key": "...", "value": {...}}]}
+
+    Format 2 (bucket-keyed - per spec):
+    {"session": "...", "shared.SERIAL": {"object_key": "...", "target_temperature": 21.5}}
+
+    In bucket-keyed format, data fields are inline with metadata (object_key,
+    base_object_revision, if_object_revision). We extract inline fields into
+    a value dict.
+
+    Returns:
+        Tuple of (session, objects_list)
+    """
+    session = body.get("session", "")
+
+    # Check for objects array first
+    if "objects" in body and isinstance(body["objects"], list):
+        return session, body["objects"]
+
+    # Parse bucket-keyed format
+    objects: list[dict[str, Any]] = []
+    metadata_fields = {"object_key", "base_object_revision", "if_object_revision"}
+
+    for key, value in body.items():
+        if key == "session":
+            continue
+        # Keys like "shared.SERIAL" or "device.SERIAL"
+        if isinstance(value, dict) and "object_key" in value:
+            # Extract inline fields into value dict (excluding metadata)
+            inline_value = {k: v for k, v in value.items() if k not in metadata_fields}
+            objects.append({
+                "object_key": value["object_key"],
+                "base_object_revision": value.get("base_object_revision"),
+                "if_object_revision": value.get("if_object_revision"),
+                "value": inline_value if inline_value else None,
+            })
+
+    return session, objects
+
+
 def format_object_for_response(obj: DeviceObject, include_value: bool = True) -> dict[str, Any]:
     """Format a device object for JSON response.
 
@@ -123,7 +166,7 @@ def format_object_for_response(obj: DeviceObject, include_value: bool = True) ->
         "object_revision": obj.object_revision,
         "object_timestamp": obj.object_timestamp,
         "object_key": obj.object_key,
-        "serial": obj.serial,
+        # Note: serial omitted per spec - device extracts from object_key
     }
     if obj.updated_at:
         result["updatedAt"] = int(obj.updated_at.timestamp() * 1000)
@@ -198,6 +241,26 @@ def _make_response_headers(include_disable_defer: bool = False) -> dict[str, str
         headers["X-nl-disable-defer-window"] = str(settings.disable_defer_window)
 
     return headers
+
+
+def _contains_temperature_fields(objects: list[DeviceObject]) -> bool:
+    """Check if any objects contain temperature-related fields.
+
+    Used to determine if X-nl-disable-defer-window should be sent,
+    which triggers immediate device confirmation instead of waiting
+    for the defer_device_window delay.
+    """
+    temp_fields = {
+        "target_temperature",
+        "target_temperature_high",
+        "target_temperature_low",
+        "target_temperature_type",
+        "hvac_mode",
+    }
+    for obj in objects:
+        if obj.value and any(field in obj.value for field in temp_fields):
+            return True
+    return False
 
 
 async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse:
@@ -450,22 +513,31 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
     # 5. Send body (data or empty tickle), close connection
     # =========================================================================
 
-    # Create chunked streaming response
-    response = web.StreamResponse(
-        status=200,
-        headers={
-            "Content-Type": "application/json",
-            "Transfer-Encoding": "chunked",
-            "X-nl-service-timestamp": str(int(time.time() * 1000)),
-            "X-nl-suspend-time-max": str(settings.suspend_time_max),
-            "X-nl-defer-device-window": str(settings.defer_device_window),
-            # Note: X-nl-disable-defer-window only sent when pushing temp changes
-        },
+    # Determine if we should disable defer window (pushing temp changes)
+    # Must check BEFORE response.prepare() since headers are sent there
+    include_disable_defer = bool(outdated_objects) and _contains_temperature_fields(
+        outdated_objects
     )
+
+    # Create chunked streaming response
+    response_headers = {
+        "Content-Type": "application/json",
+        "Transfer-Encoding": "chunked",
+        "X-nl-service-timestamp": str(int(time.time() * 1000)),
+        "X-nl-suspend-time-max": str(settings.suspend_time_max),
+        "X-nl-defer-device-window": str(settings.defer_device_window),
+    }
+    if include_disable_defer:
+        response_headers["X-nl-disable-defer-window"] = str(settings.disable_defer_window)
+
+    response = web.StreamResponse(status=200, headers=response_headers)
 
     # Send headers immediately - device can now sleep
     await response.prepare(request)
-    logger.debug(f"Sent chunked headers to {serial}, device can now sleep")
+    logger.debug(
+        f"Sent chunked headers to {serial}, device can now sleep "
+        f"(disable_defer={include_disable_defer})"
+    )
 
     # If we have outdated objects, send them immediately
     if outdated_objects:
@@ -576,7 +648,8 @@ async def handle_transport_put(request: web.Request) -> web.Response:
     except json.JSONDecodeError:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
-    objects = body.get("objects", [])
+    # Parse body supporting both formats (objects array or bucket-keyed)
+    _session, objects = parse_put_body(body)
     if not isinstance(objects, list):
         return web.Response(text="Invalid request: objects array required", status=400)
 
@@ -603,13 +676,22 @@ async def handle_transport_put(request: web.Request) -> web.Response:
         if if_rev is not None:
             server_rev = server_obj.object_revision if server_obj else 0
             if if_rev != server_rev:
+                # Per spec: return 200 OK with server state for device reconciliation
+                # Device compares timestamps and decides which version wins
                 logger.debug(
-                    f"PUT: Conditional write failed for {object_key}: "
-                    f"if_object_revision={if_rev} != server_revision={server_rev}"
+                    f"PUT: Conditional write conflict for {object_key}: "
+                    f"if_object_revision={if_rev} != server_revision={server_rev}, "
+                    f"returning server state for reconciliation"
                 )
+                conflict_response = {
+                    "object_revision": server_obj.object_revision if server_obj else 0,
+                    "object_timestamp": server_obj.object_timestamp if server_obj else 0,
+                    "object_key": object_key,
+                    "value": server_obj.value if server_obj else {},
+                }
                 return web.json_response(
-                    {"error": "revision mismatch", "object_key": object_key},
-                    status=409,
+                    {"objects": [conflict_response]},
+                    status=200,  # NOT 409 - device reconciles via timestamp comparison
                     headers=_make_response_headers(),
                 )
 
@@ -670,7 +752,9 @@ async def handle_transport_put(request: web.Request) -> web.Response:
 
     # Notify subscribers (pushes to silently held connections)
     if response_objects:
-        notified = await subscription_manager.notify_all_subscribers(serial, response_objects)
+        notified = await subscription_manager.notify_subscribers_with_dicts(
+            serial, response_objects
+        )
         logger.debug(
             f"PUT: Notified {notified} subscriber(s) for {serial}, "
             f"{len(response_objects)} object(s) updated"

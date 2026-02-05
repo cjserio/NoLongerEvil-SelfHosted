@@ -258,41 +258,71 @@ class SubscriptionManager:
 
         return notified
 
-    async def notify_all_subscribers(
+    async def notify_subscribers_with_objects(
         self,
         serial: str,
-        updated_objects: list[DeviceObject] | list[dict[str, Any]],
+        updated_objects: list[DeviceObject],
     ) -> int:
-        """Notify all subscribers (both silent and future-based) for a device.
+        """Notify subscribers with DeviceObject list (formats them).
 
         Args:
             serial: Device serial number
-            updated_objects: List of updated device objects (or dicts)
+            updated_objects: List of DeviceObject instances
+
+        Returns:
+            Total number of subscribers notified
+        """
+        if not updated_objects:
+            return 0
+
+        # IMPORTANT: object_revision and object_timestamp MUST come before object_key
+        # Note: serial omitted per spec - device extracts from object_key
+        formatted_objects = [
+            {
+                "object_revision": obj.object_revision,
+                "object_timestamp": obj.object_timestamp,
+                "object_key": obj.object_key,
+                "value": obj.value,
+            }
+            for obj in updated_objects
+        ]
+        return await self._notify_all(serial, formatted_objects, updated_objects)
+
+    async def notify_subscribers_with_dicts(
+        self,
+        serial: str,
+        formatted_objects: list[dict[str, Any]],
+    ) -> int:
+        """Notify subscribers with pre-formatted dicts.
+
+        Args:
+            serial: Device serial number
+            formatted_objects: List of pre-formatted object dicts
+
+        Returns:
+            Total number of subscribers notified
+        """
+        if not formatted_objects:
+            return 0
+        return await self._notify_all(serial, formatted_objects, [])
+
+    async def _notify_all(
+        self,
+        serial: str,
+        formatted_objects: list[dict[str, Any]],
+        device_objects: list[DeviceObject],
+    ) -> int:
+        """Internal: notify both silent and future-based subscribers.
+
+        Args:
+            serial: Device serial number
+            formatted_objects: Pre-formatted object dicts for silent subscribers
+            device_objects: Original DeviceObjects for future-based subscribers
 
         Returns:
             Total number of subscribers notified
         """
         total_notified = 0
-
-        # Handle both DeviceObject and dict inputs
-        if updated_objects and isinstance(updated_objects[0], DeviceObject):
-            # Format objects for subscribers
-            # IMPORTANT: object_revision and object_timestamp MUST come before object_key
-            formatted_objects = [
-                {
-                    "object_revision": obj.object_revision,
-                    "object_timestamp": obj.object_timestamp,
-                    "object_key": obj.object_key,
-                    "serial": obj.serial,
-                    "value": obj.value,
-                }
-                for obj in updated_objects
-            ]
-            device_objects = updated_objects
-        else:
-            # Already formatted dicts
-            formatted_objects = updated_objects
-            device_objects = []
 
         # Notify silent subscribers
         silent_count = await self.notify_silent_subscribers(serial, formatted_objects)
@@ -304,6 +334,31 @@ class SubscriptionManager:
             total_notified += future_count
 
         return total_notified
+
+    async def notify_all_subscribers(
+        self,
+        serial: str,
+        updated_objects: list[DeviceObject] | list[dict[str, Any]],
+    ) -> int:
+        """Notify all subscribers (both silent and future-based) for a device.
+
+        Deprecated: Use notify_subscribers_with_objects or notify_subscribers_with_dicts
+        for clearer type handling.
+
+        Args:
+            serial: Device serial number
+            updated_objects: List of updated device objects (or dicts)
+
+        Returns:
+            Total number of subscribers notified
+        """
+        if not updated_objects:
+            return 0
+
+        # Handle both DeviceObject and dict inputs
+        if isinstance(updated_objects[0], DeviceObject):
+            return await self.notify_subscribers_with_objects(serial, updated_objects)  # type: ignore
+        return await self.notify_subscribers_with_dicts(serial, updated_objects)  # type: ignore
 
     # ========== Utility Methods ==========
 
