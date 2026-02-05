@@ -559,7 +559,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
     }
 
     # Add to subscription manager (returns subscription object or None)
-    subscription = await subscription_manager.add_silent_subscription(
+    subscription = await subscription_manager.add_long_poll_subscription(
         serial, session, subscribed_keys
     )
 
@@ -616,7 +616,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
 
     finally:
         logger.debug(f"Removing subscription {subscription.id} for {serial}")
-        await subscription_manager.remove_silent_subscription(subscription)
+        await subscription_manager.remove_long_poll_subscription(subscription)
 
     # Only terminate chunked response if we actually sent data
     # Empty body (0\r\n\r\n) is a "tickle" that forces reconnect
@@ -744,7 +744,7 @@ async def handle_transport_put(request: web.Request) -> web.Response:
             await state_service.storage.update_user_away_status(device_owner.user_id)
             await state_service.storage.sync_user_weather_from_device(device_owner.user_id)
 
-    # Notify subscribers (pushes to silently held connections)
+    # Notify subscribers (pushes to long-poll held connections)
     if response_objects:
         notified = await subscription_manager.notify_subscribers_with_dicts(
             serial, response_objects
