@@ -38,9 +38,6 @@ class LongPollSubscription:
     id: str  # Server-generated UUID (unique per subscription)
     serial: str
     session_id: str  # Device-provided, for logging only
-    subscribed_keys: dict[str, int]  # object_key -> last known revision
-    # Queue for delivering notifications to transport layer
-    # Transport loop waits on this; notify puts data here
     notify_queue: asyncio.Queue[list[dict[str, Any]]] = field(default_factory=asyncio.Queue)
     created_at: datetime = field(default_factory=datetime.now)
 
@@ -66,7 +63,6 @@ class SubscriptionManager:
         self,
         serial: str,
         session_id: str,
-        subscribed_keys: dict[str, int],
     ) -> LongPollSubscription | None:
         """Add a long-poll subscription (connection held without response).
 
@@ -77,7 +73,6 @@ class SubscriptionManager:
         Args:
             serial: Device serial number
             session_id: Device's session identifier (for logging only)
-            subscribed_keys: Map of object_key -> last known revision
 
         Returns:
             LongPollSubscription if added, None if limit exceeded
@@ -95,7 +90,6 @@ class SubscriptionManager:
                 id=str(uuid.uuid4()),
                 serial=serial,
                 session_id=session_id,
-                subscribed_keys=subscribed_keys,
             )
 
             if serial not in self._long_poll_subscriptions:

@@ -545,17 +545,8 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         await response.write_eof()
         return response
 
-    # No immediate updates - hold connection and wait
-    subscribed_keys = {
-        obj.get("object_key"): obj.get("object_revision", 0)
-        for obj in objects
-        if obj.get("object_key")
-    }
-
-    # Add to subscription manager (returns subscription object or None)
-    subscription = await subscription_manager.add_long_poll_subscription(
-        serial, session, subscribed_keys
-    )
+    # No immediate updates - hold connection and wait for server-push
+    subscription = await subscription_manager.add_long_poll_subscription(serial, session)
 
     if subscription is None:
         # Too many subscriptions - send empty response and close

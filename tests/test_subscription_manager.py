@@ -14,7 +14,6 @@ class TestSubscriptionManager:
         subscription = await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_123",
-            {"device.TEST12345678": 0},
         )
 
         assert subscription is not None
@@ -28,7 +27,6 @@ class TestSubscriptionManager:
         subscription = await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_123",
-            {"device.TEST12345678": 0},
         )
 
         await subscription_manager.remove_long_poll_subscription(subscription)
@@ -41,7 +39,6 @@ class TestSubscriptionManager:
         subscription = await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_123",
-            {"device.TEST12345678": 0},
         )
 
         changed_objects = [
@@ -71,12 +68,10 @@ class TestSubscriptionManager:
         sub1 = await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_1",
-            {"device.TEST12345678": 0},
         )
         sub2 = await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_2",
-            {"device.TEST12345678": 0},
         )
 
         changed_objects = [{"object_key": "device.TEST12345678", "value": {}}]
@@ -98,7 +93,6 @@ class TestSubscriptionManager:
         subscription = await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_123",
-            {"device.TEST12345678": 0},
         )
 
         assert subscription_manager.has_active_subscription("TEST12345678") is True
@@ -113,17 +107,14 @@ class TestSubscriptionManager:
         await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_1",
-            {"device.TEST12345678": 0},
         )
         await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_2",
-            {"shared.TEST12345678": 0},
         )
         await subscription_manager.add_long_poll_subscription(
             "TEST87654321",
             "session_3",
-            {"device.TEST87654321": 0},
         )
 
         stats = subscription_manager.get_stats()
@@ -141,7 +132,6 @@ class TestSubscriptionManager:
         subscription = await subscription_manager.add_long_poll_subscription(
             "TEST12345678",
             "session_123",
-            {"device.TEST12345678": 0},
         )
         await subscription_manager.remove_long_poll_subscription(subscription)
 
