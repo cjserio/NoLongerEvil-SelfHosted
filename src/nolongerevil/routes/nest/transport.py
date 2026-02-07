@@ -255,10 +255,7 @@ def _contains_temperature_fields(objects: list[DeviceObject]) -> bool:
         "target_temperature_type",
         "hvac_mode",
     }
-    for obj in objects:
-        if obj.value and any(field in obj.value for field in temp_fields):
-            return True
-    return False
+    return any(obj.value and any(field in obj.value for field in temp_fields) for obj in objects)
 
 
 async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse:
@@ -363,7 +360,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         if is_update:
             # Device is sending us an update
             existing_value = server_obj.value if server_obj else {}
-            merged_value = {**existing_value, **value}
+            merged_value = {**existing_value, **(value or {})}
 
             # Store weave_device_id if provided
             if weave_device_id:
@@ -390,7 +387,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                             )
 
                 # Sync user state when away or postal_code changes
-                if "away" in value or "postal_code" in value:
+                if value and ("away" in value or "postal_code" in value):
                     device_owner = await state_service.storage.get_device_owner(serial)
                     if device_owner:
                         await state_service.storage.update_user_away_status(device_owner.user_id)
@@ -658,7 +655,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                 f"Subscription {subscription.id}: write completed, sent {len(body_bytes)} bytes to {serial}"
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Server-side timeout expired AFTER device should have already woken up
             # The device's suspend_time_max timer fires, device wakes, sends new subscribe
             # If we get here, the device must have disconnected without us noticing

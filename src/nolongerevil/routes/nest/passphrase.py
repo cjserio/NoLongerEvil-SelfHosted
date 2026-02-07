@@ -1,14 +1,14 @@
 """Nest passphrase endpoint - entry key generation for device pairing."""
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aiohttp import web
 
 from nolongerevil.config import settings
-from nolongerevil.lib.types import DeviceObject
 from nolongerevil.lib.logger import get_logger
 from nolongerevil.lib.serial_parser import extract_serial_from_request
+from nolongerevil.lib.types import DeviceObject
 from nolongerevil.services.device_state_service import DeviceStateService
 
 logger = get_logger(__name__)
@@ -102,15 +102,13 @@ async def handle_passphrase(request: web.Request) -> web.Response:
 
     # Check for existing unexpired unclaimed key first
     existing_key = await state_service.storage.get_latest_entry_key_by_serial(serial)
-    if existing_key and not existing_key.claimed_by:
-        # Check if not expired
-        if existing_key.expires_at > datetime.now(timezone.utc):
-            expires_ms = int(existing_key.expires_at.timestamp() * 1000)
-            logger.debug(f"Returning existing entry key for {serial}: {existing_key.code}")
-            return web.json_response({
-                "value": existing_key.code,
-                "expires": expires_ms,  # Must be NUMBER, not string
-            })
+    if existing_key and not existing_key.claimed_by and existing_key.expires_at > datetime.now(UTC):
+        expires_ms = int(existing_key.expires_at.timestamp() * 1000)
+        logger.debug(f"Returning existing entry key for {serial}: {existing_key.code}")
+        return web.json_response({
+            "value": existing_key.code,
+            "expires": expires_ms,  # Must be NUMBER, not string
+        })
 
     # No valid key exists, generate new one
     entry_key = await state_service.storage.generate_entry_key(serial, ttl)

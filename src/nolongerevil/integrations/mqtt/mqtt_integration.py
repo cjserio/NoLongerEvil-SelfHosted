@@ -214,6 +214,10 @@ class MqttIntegration(BaseIntegration):
             logger.warning(f"Device {serial} not fully initialized")
             return
 
+        if not self._subscription_manager:
+            logger.warning(f"Cannot execute command '{command}' for {serial}: no subscription manager")
+            return
+
         try:
             if command == "mode":
                 await execute_command(
