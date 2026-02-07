@@ -1,13 +1,18 @@
 """Control API status endpoints - device state inspection."""
 
+import time
+from datetime import datetime
 from typing import Any
 
 from aiohttp import web
 
+from nolongerevil.config.environment import settings
 from nolongerevil.integrations.mqtt.helpers import get_device_name
 from nolongerevil.lib.logger import get_logger
+from nolongerevil.lib.types import DeviceObject
 from nolongerevil.services.device_availability import DeviceAvailability
 from nolongerevil.services.device_state_service import DeviceStateService
+from nolongerevil.services.sqlmodel_service import SQLModelService
 from nolongerevil.services.subscription_manager import SubscriptionManager
 
 logger = get_logger(__name__)
@@ -110,7 +115,7 @@ async def handle_status(request: web.Request) -> web.Response:
 
 
 async def handle_devices(request: web.Request) -> web.Response:
-    """Handle GET /api/devices - list all known devices.
+    """Handle GET /api/devices - list registered (paired) devices only.
 
     Returns:
         JSON response with list of devices and their status
@@ -118,8 +123,14 @@ async def handle_devices(request: web.Request) -> web.Response:
     state_service: DeviceStateService = request.app["state_service"]
     device_availability: DeviceAvailability = request.app["device_availability"]
     subscription_manager: SubscriptionManager = request.app["subscription_manager"]
+    storage: SQLModelService | None = request.app.get("storage")
 
-    serials = state_service.get_all_serials()
+    if storage and settings.require_device_pairing:
+        # Only show devices that have been claimed/registered via entry key
+        serials = await storage.get_all_registered_serials()
+    else:
+        # Open mode or storage unavailable — show all known devices
+        serials = state_service.get_all_serials()
 
     devices = []
     for serial in serials:
@@ -241,13 +252,8 @@ async def handle_dismiss_pairing(request: web.Request) -> web.Response:
     existing_dialog = state_service.get_object(serial, alert_dialog_key)
 
     if existing_dialog:
-        # Update the alert dialog to dismissed state (empty dialog_id)
-        # Don't delete it - keep it with incremented revision so device knows it changed
-        import time
-        from datetime import datetime
-
-        from nolongerevil.lib.types import DeviceObject
-
+        # Update the alert dialog to dismissed state (empty dialog_id).
+        # Keep it with incremented revision so device knows it changed.
         dismissed_dialog = DeviceObject(
             serial=serial,
             object_key=alert_dialog_key,

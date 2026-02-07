@@ -41,9 +41,10 @@ from nolongerevil.lib.serial_parser import extract_serial_from_request, extract_
 from nolongerevil.lib.types import DeviceObject
 from nolongerevil.services.device_availability import DeviceAvailability
 from nolongerevil.services.device_state_service import DeviceStateService
+from nolongerevil.services.sqlmodel_service import SQLModelService
 from nolongerevil.services.subscription_manager import SubscriptionManager
 from nolongerevil.utils.fan_timer import preserve_fan_timer_state
-from nolongerevil.utils.structure_assignment import assign_structure_id
+from nolongerevil.utils.structure_assignment import assign_structure_id, derive_structure_id
 
 logger = get_logger(__name__)
 
@@ -218,7 +219,9 @@ async def handle_transport_get(request: web.Request) -> web.Response:
     )
 
 
-def _make_response_headers(include_disable_defer: bool = False) -> dict[str, str]:
+def _make_response_headers(
+    include_disable_defer: bool = False,
+) -> dict[str, str]:
     """Create standard response headers for Nest protocol.
 
     Args:
@@ -442,10 +445,6 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
         client_timestamp = client_obj.get("object_timestamp", 0)
         object_key = client_obj.get("object_key", "")
 
-        # Skip user.* objects - device doesn't accept them and loops forever
-        if object_key.startswith("user."):
-            continue
-
         # Use timestamp-only comparison (no revision tiebreaker)
         server_newer = _is_server_newer(
             response_obj.object_timestamp,
@@ -476,6 +475,81 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                     updated_at=datetime.now(),
                 )
             )
+
+    # Include user + structure buckets for paired devices.
+    # The user bucket's "name" field completes pairing on the device.
+    # The structure bucket alone is not sufficient — the device requires
+    # the user bucket first.
+    storage: SQLModelService | None = request.app.get("storage")
+    if storage:
+        owner = await storage.get_device_owner(serial)
+        if owner:
+            now_ts = int(time.time() * 1000)
+
+            # User bucket — triggers pairing completion via "name" field.
+            # Only send if device doesn't already have the latest version.
+            user_key = f"user.{owner.user_id}"
+            has_user_in_outdated = any(
+                obj.object_key == user_key for obj in outdated_objects
+            )
+            if not has_user_in_outdated:
+                user_obj = state_service.get_object(serial, user_key)
+                if not user_obj:
+                    user_obj = DeviceObject(
+                        serial=serial,
+                        object_key=user_key,
+                        object_revision=1,
+                        object_timestamp=now_ts,
+                        value={"name": owner.user_id},
+                        updated_at=datetime.now(),
+                    )
+                    await state_service.upsert_object(user_obj)
+                    logger.info(f"Created user bucket {user_key} for paired device {serial}")
+
+                # Check if device already has this version (matching timestamp)
+                client_user = next(
+                    (o for o in processed_client_objects if o.get("object_key") == user_key),
+                    None,
+                )
+                client_ts = client_user.get("object_timestamp", 0) if client_user else 0
+
+                if client_ts < user_obj.object_timestamp:
+                    outdated_objects.append(user_obj)
+                    logger.debug(f"Including user bucket {user_key} for paired device {serial}")
+
+            # Structure bucket — establishes device-home association
+            structure_id = derive_structure_id(owner.user_id)
+            structure_key = f"structure.{structure_id}"
+            has_structure = any(
+                obj.object_key == structure_key for obj in outdated_objects
+            )
+            if not has_structure:
+                structure_obj = state_service.get_object(serial, structure_key)
+                if not structure_obj:
+                    structure_obj = DeviceObject(
+                        serial=serial,
+                        object_key=structure_key,
+                        object_revision=1,
+                        object_timestamp=now_ts,
+                        value={
+                            "name": "Home",
+                            "devices": [serial],
+                        },
+                        updated_at=datetime.now(),
+                    )
+                    await state_service.upsert_object(structure_obj)
+                    logger.info(f"Created structure bucket {structure_key} for paired device {serial}")
+
+                # Check if device already has this version
+                client_structure = next(
+                    (o for o in processed_client_objects if o.get("object_key") == structure_key),
+                    None,
+                )
+                client_struct_ts = client_structure.get("object_timestamp", 0) if client_structure else 0
+
+                if client_struct_ts < structure_obj.object_timestamp:
+                    outdated_objects.append(structure_obj)
+                    logger.debug(f"Including structure bucket {structure_key} for paired device {serial}")
 
     # =========================================================================
     # Response handling - chunked vs non-chunked mode
