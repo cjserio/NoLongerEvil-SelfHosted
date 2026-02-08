@@ -3,329 +3,481 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NoLongerEvil - Device Management</title>
+  <title>NoLongerEvil</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7/css/materialdesignicons.min.css">
   <style>
     :root {
-      --bg-color: #f5f5f5;
-      --card-bg: white;
-      --text-color: #333;
-      --text-muted: #666;
-      --border-color: #ddd;
-      --border-light: #eee;
-      --shadow: rgba(0,0,0,0.1);
+      --bg: #f0f2f5;
+      --card: #fff;
+      --text: #1a1a1a;
+      --text2: #6b7280;
+      --text3: #9ca3af;
+      --border: #e5e7eb;
+      --hover: #f9fafb;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.08);
+      --radius: 14px;
+      --accent: #10b981;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg-color: #1a1a1a;
-        --card-bg: #2d2d2d;
-        --text-color: #e0e0e0;
-        --text-muted: #999;
-        --border-color: #444;
-        --border-light: #3a3a3a;
-        --shadow: rgba(0,0,0,0.3);
+        --bg: #111827;
+        --card: #1f2937;
+        --text: #f3f4f6;
+        --text2: #9ca3af;
+        --text3: #6b7280;
+        --border: #374151;
+        --hover: #283040;
+        --shadow: 0 1px 3px rgba(0,0,0,0.2);
+        --shadow-lg: 0 4px 12px rgba(0,0,0,0.3);
       }
     }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      max-width: 800px;
-      margin: 40px auto;
-      padding: 0 20px;
-      background: var(--bg-color);
-      color: var(--text-color);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 16px;
+      -webkit-font-smoothing: antialiased;
     }
-    h1, h2 { color: var(--text-color); }
-    .card {
-      background: var(--card-bg);
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px var(--shadow);
+
+    /* Header */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
       margin-bottom: 20px;
     }
+    .header h1 { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .btn-icon {
+      background: none; border: none; cursor: pointer;
+      color: var(--text3); padding: 6px; border-radius: 8px;
+      font-size: 18px; display: inline-flex; align-items: center;
+      transition: all 0.15s;
+    }
+    .btn-icon:hover { background: var(--border); color: var(--text); }
+
+    /* Setup */
+    .setup-toggle {
+      background: none; border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 10px 16px; width: 100%; text-align: left; cursor: pointer;
+      color: var(--text2); font-size: 14px;
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 12px; transition: background 0.15s;
+    }
+    .setup-toggle:hover { background: var(--card); }
+    .setup-toggle .mdi { transition: transform 0.2s; }
+    .setup-toggle.open .mdi { transform: rotate(90deg); }
+    .setup-content { display: none; margin-bottom: 12px; }
+    .setup-content.open { display: block; }
+    .setup-card {
+      background: var(--card); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 16px 20px;
+    }
+    .setup-card h2 {
+      font-size: 13px; font-weight: 600; color: var(--text2);
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
+    }
+    .setup-card ol { margin: 0 0 12px 20px; color: var(--text2); font-size: 14px; line-height: 1.7; }
     .form-input {
-      padding: 10px;
-      font-size: 16px;
-      width: 150px;
-      text-transform: uppercase;
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      background: var(--card-bg);
-      color: var(--text-color);
+      padding: 8px 12px; font-size: 16px; width: 160px;
+      text-transform: uppercase; letter-spacing: 1px;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg); color: var(--text); outline: none;
     }
-    .btn {
-      padding: 10px 20px;
-      font-size: 14px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-left: 10px;
+    .form-input:focus { border-color: var(--accent); }
+    .btn-primary {
+      padding: 8px 16px; font-size: 14px; font-weight: 500;
+      border: none; border-radius: 8px; cursor: pointer;
+      background: var(--accent); color: white;
     }
-    .btn-primary { background: #4CAF50; color: white; }
-    .btn-danger { background: #dc3545; color: white; }
-    .btn:hover { opacity: 0.9; }
-    .device-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border-light);
-      gap: 12px;
+    .btn-primary:hover { opacity: 0.85; }
+    .msg-success { color: var(--accent); font-size: 14px; margin-top: 6px; }
+    .msg-error { color: #dc2626; font-size: 14px; margin-top: 6px; }
+
+    /* Device list */
+    .devices { display: flex; flex-direction: column; gap: 10px; }
+
+    /* Device card */
+    .device-card {
+      background: var(--card); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 16px 20px;
     }
-    .device-item:last-child { border-bottom: none; }
-    .device-info { flex: 1; }
-    .device-status {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      font-size: 14px;
+
+    /* Row 1: identity + meta */
+    .card-row-top {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
     }
-    .device-temp {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-width: 60px;
+    .card-identity { display: flex; align-items: center; gap: 10px; }
+    .online-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .online-dot.on { background: #10b981; }
+    .online-dot.off { background: #9ca3af; }
+    .card-identity h3 { font-size: 17px; font-weight: 600; }
+    .card-serial {
+      font-family: 'SF Mono', SFMono-Regular, Menlo, monospace;
+      font-size: 11px; color: var(--text3);
     }
-    .device-temp-current {
-      font-size: 24px;
-      font-weight: bold;
+    .card-last-seen { font-size: 11px; color: var(--text3); font-style: italic; }
+    .card-meta { display: flex; align-items: center; gap: 10px; color: var(--text3); font-size: 13px; }
+    .card-meta .mdi { font-size: 15px; }
+    .hvac-indicator { display: inline-flex; align-items: center; font-size: 16px; }
+    .hvac-indicator.heating { color: #f59e0b; }
+    .hvac-indicator.cooling { color: #3b82f6; }
+    .btn-delete {
+      background: none; border: none; cursor: pointer;
+      color: var(--text3); padding: 4px; border-radius: 6px;
+      font-size: 16px; opacity: 0.3; transition: all 0.15s;
     }
-    .device-temp-target {
-      font-size: 12px;
-      color: var(--text-muted);
+    .btn-delete:hover { opacity: 1; color: #dc2626; }
+
+    /* Row 2: current temp + target controls */
+    .card-row-climate {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 14px;
     }
-    .device-mode {
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      text-transform: uppercase;
-      font-weight: bold;
+    .climate-current {
+      display: flex; align-items: baseline; gap: 6px;
     }
-    .mode-heat { background: #ff5722; color: white; }
-    .mode-cool { background: #2196f3; color: white; }
-    .mode-range { background: #9c27b0; color: white; }
-    .mode-off { background: var(--border-color); color: var(--text-muted); }
-    .status-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      display: inline-block;
+    .temp-big {
+      font-size: 44px; font-weight: 700; letter-spacing: -2px; line-height: 1;
     }
-    .status-online { background: #4CAF50; }
-    .status-offline { background: #9e9e9e; }
-    .text-muted { color: var(--text-muted); }
-    .monospace { font-family: monospace; font-size: 12px; }
-    #registerResult { margin-top: 15px; }
-    #deviceList { margin-top: 15px; }
-    .success { color: #4CAF50; }
-    .error { color: #dc3545; }
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .temp-unit {
+      font-size: 18px; font-weight: 500; color: var(--text2);
     }
-    .card-header h2 { margin: 0; }
-    .card-header .btn { margin: 0; }
+    .temp-humidity {
+      font-size: 12px; color: var(--text3);
+      display: flex; align-items: center; gap: 3px; margin-top: 2px;
+    }
+    .temp-humidity .mdi { font-size: 14px; }
+
+    /* Target single */
+    .target-single {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .target-info { text-align: center; }
+    .target-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.3px; }
+    .target-value { font-size: 22px; font-weight: 600; line-height: 1.2; }
+    .temp-btn {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 1px solid var(--border); background: var(--card);
+      color: var(--text); font-size: 18px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s; user-select: none; -webkit-user-select: none;
+    }
+    .temp-btn:hover { background: var(--hover); border-color: var(--text3); }
+    .temp-btn:active { transform: scale(0.92); }
+
+    /* Target range */
+    .target-range {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .range-group { display: flex; align-items: center; gap: 6px; }
+    .range-label { font-size: 10px; color: var(--text3); text-transform: uppercase; font-weight: 600; letter-spacing: 0.3px; }
+    .range-value { font-size: 17px; font-weight: 600; min-width: 38px; text-align: center; }
+    .range-btn {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 1px solid var(--border); background: var(--card);
+      color: var(--text); font-size: 14px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s; user-select: none; -webkit-user-select: none;
+    }
+    .range-btn:hover { background: var(--hover); border-color: var(--text3); }
+    .range-btn:active { transform: scale(0.92); }
+    .range-sep { color: var(--text3); font-size: 14px; margin: 0 2px; }
+
+    /* Row 3: mode + eco */
+    .card-row-controls {
+      display: flex; align-items: center; justify-content: space-between;
+      border-top: 1px solid var(--border); padding-top: 12px;
+    }
+    .mode-seg {
+      display: inline-flex; background: var(--bg);
+      border-radius: 8px; padding: 3px; gap: 2px;
+    }
+    .mode-btn {
+      padding: 5px 10px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.3px;
+      border: none; border-radius: 6px; cursor: pointer;
+      background: transparent; color: var(--text3); transition: all 0.15s;
+    }
+    .mode-btn:hover { color: var(--text); }
+    .mode-btn.active { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+    .mode-btn.active.m-heat { color: #dc2626; }
+    .mode-btn.active.m-cool { color: #2563eb; }
+    .mode-btn.active.m-auto { color: #7c3aed; }
+    .eco-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 10px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.3px;
+      border: 1px solid var(--border); border-radius: 8px;
+      cursor: pointer; background: transparent; color: var(--text3);
+      transition: all 0.15s;
+    }
+    .eco-btn:hover { border-color: var(--text3); color: var(--text2); }
+    .eco-btn.active { background: #d1fae5; color: #059669; border-color: #a7f3d0; }
+    @media (prefers-color-scheme: dark) {
+      .eco-btn.active { background: #064e3b; color: #6ee7b7; border-color: #065f46; }
+    }
+
+    .empty-state {
+      text-align: center; padding: 48px 20px; color: var(--text3);
+    }
+    .empty-state .mdi { font-size: 48px; display: block; margin-bottom: 12px; opacity: 0.3; }
   </style>
 </head>
 <body>
-  <h1>🌡️ NoLongerEvil Device Management</h1>
-
-  <div class="card">
-    <h2>Quick Start</h2>
-    <ol>
-      <li>On your Nest thermostat, go to Settings and select "Nest App"</li>
-      <li>The thermostat will display a 7-character pairing code</li>
-      <li>Enter the code below to register the device</li>
-    </ol>
+  <div class="header">
+    <h1><i class="mdi mdi-thermostat"></i> NoLongerEvil</h1>
+    <button onclick="loadDevices()" class="btn-icon" title="Refresh"><i class="mdi mdi-refresh"></i></button>
   </div>
 
-  <div class="card">
-    <h2>Register Device</h2>
-    <p>Enter the 7-character pairing code from your Nest thermostat:</p>
-    <form id="registerForm">
-      <input
-        type="text"
-        id="entryCode"
-        placeholder="123-ABCD"
-        maxlength="8"
-        class="form-input"
-        required
-      />
-      <button type="submit" class="btn btn-primary">Register Device</button>
-    </form>
-    <div id="registerResult"></div>
+  <button class="setup-toggle" onclick="toggleSetup()" id="setupToggle">
+    <i class="mdi mdi-chevron-right"></i> Add a new device
+  </button>
+  <div class="setup-content" id="setupContent">
+    <div class="setup-card">
+      <h2>Setup</h2>
+      <ol>
+        <li>On your Nest thermostat, go to <strong>Settings → Nest App</strong></li>
+        <li>Enter the 7-character code shown on screen</li>
+      </ol>
+      <form id="registerForm" style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="entryCode" placeholder="ABC-1234" maxlength="8" class="form-input" required />
+        <button type="submit" class="btn-primary">Register</button>
+      </form>
+      <div id="registerResult"></div>
+    </div>
   </div>
 
-  <div class="card">
-    <div class="card-header">
-      <h2>Devices</h2>
-      <button onclick="loadDevices()" class="btn btn-primary">
-        <i class="mdi mdi-refresh"></i> Refresh
-      </button>
-    </div>
-    <div id="deviceList">
-      <p><em>Loading devices...</em></p>
-    </div>
+  <div id="deviceList">
+    <div class="empty-state"><i class="mdi mdi-loading mdi-spin"></i>Loading...</div>
   </div>
 
   <script>
-    // Get base path from data attribute (injected by server for ingress support)
     const BASE_PATH = document.body.dataset.ingressPath || '';
-
-    // Load devices on page load
+    const pendingTargets = {};
     loadDevices();
+    setInterval(loadDevices, 30000);
 
-    // Auto-format entry code with dash (XXX-XXXX)
+    function toggleSetup() {
+      document.getElementById('setupToggle').classList.toggle('open');
+      document.getElementById('setupContent').classList.toggle('open');
+    }
+
     const entryCodeInput = document.getElementById('entryCode');
     entryCodeInput.addEventListener('input', (e) => {
       const input = e.target;
       const isDeleting = e.inputType && e.inputType.startsWith('delete');
-      let value = input.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-      // Only add dash if we have more than 3 chars, or exactly 3 and not deleting
-      if (value.length > 3 || (value.length === 3 && !isDeleting)) {
-        value = value.slice(0, 3) + '-' + value.slice(3, 7);
-      }
-      input.value = value;
-      // Auto-position cursor after dash when it's inserted
-      if (value.length === 4 && !isDeleting) {
-        input.setSelectionRange(4, 4);
-      }
+      let v = input.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      if (v.length > 3 || (v.length === 3 && !isDeleting)) v = v.slice(0, 3) + '-' + v.slice(3, 7);
+      input.value = v;
+      if (v.length === 4 && !isDeleting) input.setSelectionRange(4, 4);
     });
 
-    // Handle registration form
     document.getElementById('registerForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const code = document.getElementById('entryCode').value.replace(/-/g, '').toUpperCase().trim();
-      const resultDiv = document.getElementById('registerResult');
-
-      if (code.length !== 7) {
-        resultDiv.innerHTML = '<p class="error">Entry code must be 7 characters</p>';
-        return;
-      }
-
-      resultDiv.innerHTML = '<p>Registering device...</p>';
-
+      const res = document.getElementById('registerResult');
+      if (code.length !== 7) { res.innerHTML = '<p class="msg-error">Code must be 7 characters</p>'; return; }
+      res.innerHTML = '<p style="color:var(--text2);font-size:14px;margin-top:6px">Registering...</p>';
       try {
-        const response = await fetch(BASE_PATH + '/api/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: code, userId: 'homeassistant' })
+        const r = await fetch(BASE_PATH + '/api/register', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({code, userId: 'homeassistant'})
         });
-
-        const result = await response.json();
-
-        if (result.success) {
-          resultDiv.innerHTML = '<p class="success">' + result.message + '</p>';
+        const j = await r.json();
+        if (j.success) {
+          res.innerHTML = '<p class="msg-success">' + j.message + '</p>';
           document.getElementById('entryCode').value = '';
           setTimeout(loadDevices, 1000);
-        } else {
-          resultDiv.innerHTML = '<p class="error">' + result.message + '</p>';
-        }
-      } catch (error) {
-        resultDiv.innerHTML = '<p class="error">Error: ' + error.message + '</p>';
-      }
+        } else res.innerHTML = '<p class="msg-error">' + j.message + '</p>';
+      } catch (err) { res.innerHTML = '<p class="msg-error">Error: ' + err.message + '</p>'; }
     });
 
-    function celsiusToFahrenheit(celsius) {
-      return (celsius * 9 / 5) + 32;
+    function c2f(c) { return (c * 9 / 5) + 32; }
+    function f2c(f) { return (f - 32) * 5 / 9; }
+    function tempVal(t, s) { return t == null ? null : s === 'F' ? Math.round(c2f(t)) : Math.round(t * 2) / 2; }
+    function fmtTemp(t, s) { return t == null ? '--' : tempVal(t, s) + '\u00B0'; }
+    function stepSize(s) { return s === 'F' ? 1 : 0.5; }
+    function modeKey(m) { if (!m) return 'off'; const v = m.toLowerCase(); return v === 'heat-cool' ? 'auto' : v; }
+    function modeApi(k) { return k === 'auto' ? 'heat-cool' : k; }
+
+    function relativeTime(iso) {
+      if (!iso) return '';
+      const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+      if (s < 60) return 'Last seen just now';
+      if (s < 3600) return 'Last seen ' + Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return 'Last seen ' + Math.floor(s / 3600) + 'h ago';
+      return 'Last seen ' + Math.floor(s / 86400) + 'd ago';
     }
 
-    function formatTemp(temp, scale) {
-      if (temp === null || temp === undefined) return '--';
-      // Temperatures are stored in Celsius, convert if user prefers Fahrenheit
-      const displayTemp = scale === 'F' ? celsiusToFahrenheit(temp) : temp;
-      const unit = scale === 'F' ? 'F' : 'C';
-      return Math.round(displayTemp) + '°' + unit;
+    async function sendCommand(serial, command, value) {
+      try {
+        const r = await fetch(BASE_PATH + '/command', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({serial, command, value})
+        });
+        const j = await r.json();
+        if (!j.success) console.error('Command failed:', j.message);
+        setTimeout(loadDevices, 2000);
+        return j;
+      } catch (err) { console.error('Command error:', err); }
     }
 
-    function getModeClass(mode) {
-      if (!mode) return 'mode-off';
-      const m = mode.toLowerCase();
-      if (m === 'heat') return 'mode-heat';
-      if (m === 'cool') return 'mode-cool';
-      if (m === 'range') return 'mode-range';
-      return 'mode-off';
-    }
-
-    function getModeLabel(mode) {
-      if (!mode) return 'OFF';
-      const m = mode.toLowerCase();
-      if (m === 'range') return 'AUTO';
-      return m.toUpperCase();
-    }
-
-    function getTargetTemp(d) {
-      const scale = d.temperature_scale || 'C';
-      if (!d.mode || d.mode.toLowerCase() === 'off') return '';
-      if (d.mode.toLowerCase() === 'range') {
-        return formatTemp(d.target_temperature_low, scale) + ' - ' + formatTemp(d.target_temperature_high, scale);
+    function adjustTemp(serial, currentTarget, scale, delta, field) {
+      const step = stepSize(scale);
+      const cur = tempVal(currentTarget, scale);
+      const nv = cur + delta * step;
+      const nc = scale === 'F' ? f2c(nv) : nv;
+      if (!pendingTargets[serial]) pendingTargets[serial] = {};
+      if (field === 'target') pendingTargets[serial].target = nc;
+      else pendingTargets[serial][field] = nc;
+      renderDevices(lastDevices);
+      if (field === 'target') {
+        sendCommand(serial, 'set_temperature', nc);
+      } else {
+        const d = lastDevices.find(x => x.serial === serial);
+        const low = field === 'low' ? nc : (pendingTargets[serial]?.low ?? d.target_temperature_low);
+        const high = field === 'high' ? nc : (pendingTargets[serial]?.high ?? d.target_temperature_high);
+        sendCommand(serial, 'set_temperature', {low, high});
       }
-      return '→ ' + formatTemp(d.target_temperature, scale);
+    }
+
+    function setMode(serial, mode) {
+      sendCommand(serial, 'set_mode', mode);
+      const d = lastDevices.find(x => x.serial === serial);
+      if (d) { d.mode = mode; renderDevices(lastDevices); }
+    }
+
+    function toggleEco(serial, cur) {
+      sendCommand(serial, 'set_away', !cur);
+      const d = lastDevices.find(x => x.serial === serial);
+      if (d) { d.away = !cur; d.has_leaf = !cur; renderDevices(lastDevices); }
+    }
+
+    let lastDevices = [];
+
+    function renderDevices(devices) {
+      lastDevices = devices;
+      const el = document.getElementById('deviceList');
+      if (!devices.length) {
+        el.innerHTML = '<div class="empty-state"><i class="mdi mdi-thermostat-box"></i>No devices yet.<br>Click "Add a new device" to get started.</div>';
+        return;
+      }
+      el.innerHTML = '<div class="devices">' + devices.map(d => {
+        const on = d.is_available, scale = d.temperature_scale || 'F', mk = modeKey(d.mode);
+        const p = pendingTargets[d.serial] || {};
+        const tgt = p.target ?? d.target_temperature;
+        const tLow = p.low ?? d.target_temperature_low;
+        const tHigh = p.high ?? d.target_temperature_high;
+        const S = d.serial, esc = "'" + S + "'";
+
+        // HVAC
+        let hvac = '';
+        if (d.hvac_state === 'heating') hvac = '<span class="hvac-indicator heating"><i class="mdi mdi-fire"></i></span>';
+        else if (d.hvac_state === 'cooling') hvac = '<span class="hvac-indicator cooling"><i class="mdi mdi-snowflake"></i></span>';
+
+        // Humidity
+        let hum = d.humidity != null ? '<span class="temp-humidity"><i class="mdi mdi-water-percent"></i>' + d.humidity + '%</span>' : '';
+
+        // Last seen
+        let ls = !on && d.last_seen ? '<div class="card-last-seen">' + relativeTime(d.last_seen) + '</div>' : '';
+
+        // Target controls
+        let targetHtml = '';
+        if (mk === 'off') {
+          // nothing
+        } else if (mk === 'auto') {
+          targetHtml = '<div class="target-range">' +
+            '<div class="range-group">' +
+              '<span class="range-label">Low</span>' +
+              '<button class="range-btn" onclick="adjustTemp(' + esc + ',' + tLow + ',\'' + scale + '\',-1,\'low\')">−</button>' +
+              '<span class="range-value">' + fmtTemp(tLow, scale) + '</span>' +
+              '<button class="range-btn" onclick="adjustTemp(' + esc + ',' + tLow + ',\'' + scale + '\',1,\'low\')">+</button>' +
+            '</div>' +
+            '<span class="range-sep">–</span>' +
+            '<div class="range-group">' +
+              '<span class="range-label">High</span>' +
+              '<button class="range-btn" onclick="adjustTemp(' + esc + ',' + tHigh + ',\'' + scale + '\',-1,\'high\')">−</button>' +
+              '<span class="range-value">' + fmtTemp(tHigh, scale) + '</span>' +
+              '<button class="range-btn" onclick="adjustTemp(' + esc + ',' + tHigh + ',\'' + scale + '\',1,\'high\')">+</button>' +
+            '</div>' +
+          '</div>';
+        } else {
+          targetHtml = '<div class="target-single">' +
+            '<button class="temp-btn" onclick="adjustTemp(' + esc + ',' + tgt + ',\'' + scale + '\',-1,\'target\')">−</button>' +
+            '<div class="target-info"><div class="target-label">Target</div><div class="target-value">' + fmtTemp(tgt, scale) + '</div></div>' +
+            '<button class="temp-btn" onclick="adjustTemp(' + esc + ',' + tgt + ',\'' + scale + '\',1,\'target\')">+</button>' +
+          '</div>';
+        }
+
+        // Mode buttons
+        const modes = ['heat','cool','auto','off'];
+        const modeBtns = modes.map(m => {
+          const a = mk === m, cls = 'mode-btn' + (a ? ' active m-' + m : '');
+          const label = m === 'auto' ? 'Auto' : m.charAt(0).toUpperCase() + m.slice(1);
+          return '<button class="' + cls + '" onclick="setMode(' + esc + ',\'' + modeApi(m) + '\')">' + label + '</button>';
+        }).join('');
+
+        const eco = d.has_leaf || d.away;
+
+        return '<div class="device-card">' +
+          '<div class="card-row-top">' +
+            '<div class="card-identity">' +
+              '<span class="online-dot ' + (on ? 'on' : 'off') + '"></span>' +
+              '<div>' +
+                '<h3>' + (d.name || S) + '</h3>' +
+                '<div class="card-serial">' + S + '</div>' +
+                ls +
+              '</div>' +
+            '</div>' +
+            '<div class="card-meta">' + hvac +
+              (d.humidity != null ? '<span><i class="mdi mdi-water-percent"></i> ' + d.humidity + '%</span>' : '') +
+              '<button class="btn-delete" onclick="deleteDevice(' + esc + ')" title="Remove"><i class="mdi mdi-trash-can-outline"></i></button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="card-row-climate">' +
+            '<div>' +
+              '<div class="climate-current">' +
+                '<span class="temp-big">' + (tempVal(d.current_temperature, scale) ?? '--') + '</span>' +
+                '<span class="temp-unit">' + scale + '</span>' +
+              '</div>' +
+            '</div>' +
+            targetHtml +
+          '</div>' +
+          '<div class="card-row-controls">' +
+            '<div class="mode-seg">' + modeBtns + '</div>' +
+            '<button class="' + (eco ? 'eco-btn active' : 'eco-btn') + '" onclick="toggleEco(' + esc + ',' + eco + ')">' +
+              '<i class="mdi mdi-leaf"></i> Eco</button>' +
+          '</div>' +
+        '</div>';
+      }).join('') + '</div>';
     }
 
     async function loadDevices() {
-      const deviceList = document.getElementById('deviceList');
       try {
-        const response = await fetch(BASE_PATH + '/api/devices');
-        const data = await response.json();
-        const devices = data.devices || [];
-
-        if (devices.length === 0) {
-          deviceList.innerHTML = '<p><em>No devices registered yet</em></p>';
-        } else {
-          deviceList.innerHTML = devices.map(d => {
-            const isOnline = d.is_available;
-            const statusClass = isOnline ? 'status-online' : 'status-offline';
-            const statusTitle = isOnline ? 'Online' : 'Offline';
-            const modeClass = getModeClass(d.mode);
-            const modeLabel = getModeLabel(d.mode);
-            const targetTemp = getTargetTemp(d);
-
-            const scale = d.temperature_scale || 'C';
-
-            return '<div class="device-item">' +
-              '<div class="device-info">' +
-                '<span class="status-dot ' + statusClass + '" title="' + statusTitle + '"></span> ' +
-                '<strong>' + (d.name || d.serial) + '</strong><br>' +
-                '<small class="text-muted monospace">' + d.serial + '</small>' +
-              '</div>' +
-              '<div class="device-status">' +
-                '<div class="device-temp">' +
-                  '<span class="device-temp-current">' + formatTemp(d.current_temperature, scale) + '</span>' +
-                  '<span class="device-temp-target">' + targetTemp + '</span>' +
-                '</div>' +
-                '<span class="device-mode ' + modeClass + '">' + modeLabel + '</span>' +
-                '<button onclick="deleteDevice(\'' + d.serial + '\')" class="btn btn-danger" title="Delete">' +
-                  '<i class="mdi mdi-delete"></i>' +
-                '</button>' +
-              '</div>' +
-            '</div>';
-          }).join('');
-        }
-      } catch (error) {
-        deviceList.innerHTML = '<p class="error">Error loading devices: ' + error.message + '</p>';
+        const r = await fetch(BASE_PATH + '/api/devices');
+        const data = await r.json();
+        Object.keys(pendingTargets).forEach(k => delete pendingTargets[k]);
+        renderDevices(data.devices || []);
+      } catch (err) {
+        document.getElementById('deviceList').innerHTML =
+          '<div class="setup-card"><p class="msg-error">Error loading devices: ' + err.message + '</p></div>';
       }
     }
 
     async function deleteDevice(serial) {
-      if (!confirm('Delete device ' + serial + '?')) return;
-
+      if (!confirm('Remove device ' + serial + '?')) return;
       try {
-        const response = await fetch(BASE_PATH + '/api/device', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ serial: serial })
+        const r = await fetch(BASE_PATH + '/api/device', {
+          method: 'DELETE', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({serial})
         });
-
-        const result = await response.json();
-        if (result.success) {
-          loadDevices();
-        } else {
-          alert('Failed to delete: ' + (result.error || 'Unknown error'));
-        }
-      } catch (error) {
-        alert('Error: ' + error.message);
-      }
+        const j = await r.json();
+        if (j.success) loadDevices();
+        else alert('Failed: ' + (j.error || 'Unknown error'));
+      } catch (err) { alert('Error: ' + err.message); }
     }
   </script>
 </body>
