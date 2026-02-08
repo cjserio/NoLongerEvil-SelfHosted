@@ -48,6 +48,12 @@ from nolongerevil.utils.structure_assignment import assign_structure_id, derive_
 
 logger = get_logger(__name__)
 
+# Devices that have received the structure bucket this server session.
+# On first connect after server/device restart, we force-send the structure
+# bucket even if timestamps match, because the device's internal mode may
+# have reset while the cached timestamp persists in flash.
+_structure_sent: set[str] = set()
+
 
 def parse_object_key(object_key: str) -> tuple[str, str]:
     """Parse an object key into type and serial."""
@@ -567,11 +573,39 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                     client_structure.get("object_timestamp", 0) if client_structure else 0
                 )
 
-                if client_struct_ts < structure_obj.object_timestamp:
+                first_time = serial not in _structure_sent
+                if client_struct_ts < structure_obj.object_timestamp or first_time:
+                    _structure_sent.add(serial)
                     outdated_objects.append(structure_obj)
                     logger.debug(
                         f"Including structure bucket {structure_key} for paired device {serial}"
+                        f"{' (first connect)' if first_time else ''}"
                     )
+
+    # Include default structure bucket for unclaimed devices (enables away mode)
+    if storage:
+        owner = await storage.get_device_owner(serial) if storage else None
+        if not owner:
+            structure_key = "structure.default"
+            has_structure = any(obj.object_key == structure_key for obj in outdated_objects)
+            if not has_structure:
+                structure_obj = state_service.get_object(serial, structure_key)
+                if structure_obj:
+                    client_structure = next(
+                        (o for o in processed_client_objects if o.get("object_key") == structure_key),
+                        None,
+                    )
+                    client_struct_ts = (
+                        client_structure.get("object_timestamp", 0) if client_structure else 0
+                    )
+                    first_time = serial not in _structure_sent
+                    if client_struct_ts < structure_obj.object_timestamp or first_time:
+                        _structure_sent.add(serial)
+                        outdated_objects.append(structure_obj)
+                        logger.debug(
+                            f"Including default structure bucket for unclaimed device {serial}"
+                            f"{' (first connect)' if first_time else ''}"
+                        )
 
     # =========================================================================
     # Response handling - chunked vs non-chunked mode

@@ -10,6 +10,7 @@ from nolongerevil.lib.consts import API_MODE_TO_NEST, ApiMode
 from nolongerevil.lib.logger import get_logger
 from nolongerevil.services.device_state_service import DeviceStateService
 from nolongerevil.services.subscription_manager import SubscriptionManager
+from nolongerevil.utils.structure_assignment import derive_structure_id
 from nolongerevil.utils.temperature_safety import (
     get_safety_bounds,
     validate_and_clamp_temperatures,
@@ -95,17 +96,25 @@ async def set_away(
     _serial: str,
     value: bool,
 ) -> dict[str, Any]:
-    """Set away mode.
+    """Set away mode via manual_eco in the structure bucket.
+
+    Uses manual_eco_all instead of the away field because the firmware's
+    schedule preconditioning reverts auto-eco (triggered by away=true) but
+    respects manual-eco. The manual_eco_timestamp must be within 600 seconds
+    of the device clock or the firmware silently ignores the change.
 
     Args:
         _state_service: Device state service (unused)
         _serial: Device serial (unused)
-        value: True for away, False for home
+        value: True for away/eco, False for home
 
     Returns:
         Updated values (for structure object)
     """
-    return {"away": value}
+    return {
+        "manual_eco_all": value,
+        "manual_eco_timestamp": int(time.time()),
+    }
 
 
 async def set_fan(
@@ -234,9 +243,14 @@ async def execute_command(
     # Determine target object key based on command type
     key_type = COMMAND_OBJECT_KEYS.get(command, "device")
     if key_type == "structure":
-        shared_obj = state_service.get_object(serial, f"shared.{serial}")
-        structure_id = shared_obj.value.get("structure_id") if shared_obj else None
-        object_key = f"structure.{structure_id}" if structure_id else f"shared.{serial}"
+        # Look up structure_id from device owner, fall back to default
+        storage = state_service.storage
+        structure_id = "default"
+        if storage:
+            owner = await storage.get_device_owner(serial)
+            if owner:
+                structure_id = derive_structure_id(owner.user_id)
+        object_key = f"structure.{structure_id}"
     elif key_type == "shared":
         object_key = f"shared.{serial}"
     else:
