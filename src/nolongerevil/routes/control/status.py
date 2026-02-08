@@ -186,12 +186,14 @@ async def handle_schedule(request: web.Request) -> web.Response:
     if not schedule_obj:
         return web.json_response({"serial": serial, "schedule": None})
 
-    return web.json_response({
-        "serial": serial,
-        "schedule": schedule_obj.value,
-        "object_revision": schedule_obj.object_revision,
-        "object_timestamp": schedule_obj.object_timestamp,
-    })
+    return web.json_response(
+        {
+            "serial": serial,
+            "schedule": schedule_obj.value,
+            "object_revision": schedule_obj.object_revision,
+            "object_timestamp": schedule_obj.object_timestamp,
+        }
+    )
 
 
 async def handle_notify_device(request: web.Request) -> web.Response:
