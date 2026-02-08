@@ -691,6 +691,7 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
     # Direct queue access - no lookup needed
     notify_queue = subscription.notify_queue
     data_sent = False
+    changed_objects = None
 
     try:
         # Wait for data - hold connection until data arrives or device disconnects
@@ -728,6 +729,9 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
     except (asyncio.CancelledError, ConnectionResetError, ConnectionError) as e:
         # Connection closed by device (it went to sleep) - this is normal
         logger.info(f"Subscription {subscription.id}: connection closed ({type(e).__name__}): {e}")
+        # Buffer undelivered data so the next subscribe replays it
+        if changed_objects is not None and not data_sent:
+            await subscription_manager.store_pending_push(serial, changed_objects)
 
     finally:
         logger.debug(f"Removing subscription {subscription.id} for {serial}")
