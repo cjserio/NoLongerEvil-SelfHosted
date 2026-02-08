@@ -82,8 +82,8 @@ def format_device_status(
         "fan_timer_active": bool(device_values.get("fan_timer_timeout", 0)),
         "fan_timer_timeout": device_values.get("fan_timer_timeout", 0),
         "eco_temperatures": {
-            "high": device_values.get("eco_temperature_high"),
-            "low": device_values.get("eco_temperature_low"),
+            "high": device_values.get("away_temperature_high"),
+            "low": device_values.get("away_temperature_low"),
         },
         "is_online": device_values.get("is_online", False),
         "has_leaf": device_values.get("leaf", False),

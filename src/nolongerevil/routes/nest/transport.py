@@ -97,6 +97,7 @@ KNOWN_BUCKET_TYPES = {
     "hvac_partner",
     "rcs_settings",
     "cloud_algo",
+    "occupancy",
 }
 
 

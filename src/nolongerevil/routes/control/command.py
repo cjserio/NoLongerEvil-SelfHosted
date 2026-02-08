@@ -170,9 +170,9 @@ async def set_eco_temperatures(
     """
     values = {}
     if "high" in value:
-        values["eco_temperature_high"] = float(value["high"])
+        values["away_temperature_high"] = float(value["high"])
     if "low" in value:
-        values["eco_temperature_low"] = float(value["low"])
+        values["away_temperature_low"] = float(value["low"])
 
     device_obj = state_service.get_object(serial, f"device.{serial}")
     shared_obj = state_service.get_object(serial, f"shared.{serial}")
