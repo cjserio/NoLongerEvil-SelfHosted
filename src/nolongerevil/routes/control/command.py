@@ -69,26 +69,55 @@ async def set_temperature(
 
 
 async def set_mode(
-    _state_service: DeviceStateService,
-    _serial: str,
+    state_service: DeviceStateService,
+    serial: str,
     value: str,
 ) -> dict[str, Any]:
     """Set HVAC mode.
 
     Args:
-        _state_service: Device state service (unused)
-        _serial: Device serial (unused)
-        value: Mode ("off", "heat", "cool", "heat-cool", "eco")
+        state_service: Device state service
+        serial: Device serial
+        value: Mode ("off", "heat", "cool", "heat-cool", "emergency")
 
     Returns:
         Updated values
+
+    Raises:
+        CommandError: If mode is invalid or device lacks the capability
     """
+    mode_str = value.lower() if isinstance(value, str) else str(value).lower()
+
+    # Reject "eco" — eco is controlled via set_away (manual_eco_all in structure bucket),
+    # not target_temperature_type. "eco" is not a valid target_temperature_type value.
+    if mode_str == "eco":
+        raise CommandError(
+            "Use set_away to control eco mode. "
+            "'eco' is not a valid target_temperature_type — "
+            "use manual_eco_all in the structure bucket instead."
+        )
+
     # Convert input string to ApiMode, then lookup NestMode
     try:
-        api_mode = ApiMode(value.lower())
-        target_mode = API_MODE_TO_NEST.get(api_mode, value)
+        api_mode = ApiMode(mode_str)
+        target_mode = API_MODE_TO_NEST.get(api_mode, mode_str)
     except ValueError:
-        target_mode = value  # Pass through unknown values
+        raise CommandError(
+            f"Unknown mode '{value}'. Valid modes: off, heat, cool, heat-cool, range, auto, emergency"
+        )
+
+    # Validate device capabilities
+    device_obj = state_service.get_object(serial, f"device.{serial}")
+    if device_obj:
+        dv = device_obj.value
+        if target_mode == "heat" and not dv.get("can_heat", True):
+            raise CommandError("Device does not support heating (can_heat=false)")
+        if target_mode == "cool" and not dv.get("can_cool", True):
+            raise CommandError("Device does not support cooling (can_cool=false)")
+        if target_mode == "range" and not (dv.get("can_heat", True) and dv.get("can_cool", True)):
+            raise CommandError("Range mode requires both heating and cooling capability")
+        if target_mode == "emergency" and not dv.get("has_emer_heat", False):
+            raise CommandError("Device does not have emergency heat (has_emer_heat=false)")
 
     return {"target_temperature_type": target_mode}
 
@@ -302,6 +331,89 @@ async def set_schedule_mode(
     return {"schedule_mode": mode}
 
 
+# Cloud-writable device bucket fields (access mode 2).
+# These can be set via the generic set_device_setting command.
+DEVICE_SETTING_WHITELIST: set[str] = {
+    # Safety
+    "lower_safety_temp_enabled",
+    "upper_safety_temp_enabled",
+    "lower_safety_temp",
+    "upper_safety_temp",
+    # Temperature lock
+    "temp_lock_on",
+    "temp_lock_pin_hash",
+    "temp_lock_high_temp",
+    "temp_lock_low_temp",
+    # Learning and preconditioning
+    "learning_mode",
+    "preconditioning_enabled",
+    "preconditioning_active",
+    # Humidity
+    "target_humidity_enabled",
+    "target_humidity",
+    # Display
+    "temperature_scale",
+    "time_to_target",
+    "time_to_target_training_status",
+    # Sunblock
+    "sunlight_correction_enabled",
+    # Fan
+    "fan_timer_duration_minutes",
+    "fan_duty_cycle",
+    "fan_duty_start_time",
+    "fan_duty_end_time",
+    "fan_schedule_speed",
+    # Heat pump
+    "heat_pump_aux_threshold_enabled",
+    "heat_pump_aux_threshold",
+    "heat_pump_comp_threshold_enabled",
+    "heat_pump_comp_threshold",
+    # Wiring / equipment
+    "equipment_type",
+    "heat_source",
+    # Hot water (EU models)
+    "hot_water_boost_time_to_end",
+    "hot_water_active",
+    # Filter
+    "filter_reminder_enabled",
+    "filter_reminder_level",
+    # Locale
+    "postal_code",
+    "country_code",
+}
+
+
+async def set_device_setting(
+    _state_service: DeviceStateService,
+    _serial: str,
+    value: Any,
+) -> dict[str, Any]:
+    """Set one or more cloud-writable device bucket fields.
+
+    Args:
+        _state_service: Device state service (unused)
+        _serial: Device serial (unused)
+        value: Dict of field_name: field_value pairs
+
+    Returns:
+        Validated field dict
+
+    Raises:
+        CommandError: If value is not a dict or contains non-writable fields
+    """
+    if not isinstance(value, dict):
+        raise CommandError("set_device_setting value must be a JSON object of {field: value} pairs")
+
+    rejected = set(value.keys()) - DEVICE_SETTING_WHITELIST
+    if rejected:
+        raise CommandError(
+            f"Fields not cloud-writable: {', '.join(sorted(rejected))}. "
+            f"Only device bucket mode-2 fields are accepted."
+        )
+
+    return value
+
+
 # Command registry
 COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "set_temperature": set_temperature,
@@ -311,6 +423,7 @@ COMMAND_HANDLERS: dict[str, CommandHandler] = {
     "set_eco_temperatures": set_eco_temperatures,
     "set_schedule": set_schedule,
     "set_schedule_mode": set_schedule_mode,
+    "set_device_setting": set_device_setting,
 }
 
 # Object key routing for each command
@@ -322,6 +435,7 @@ COMMAND_OBJECT_KEYS: dict[str, str] = {
     "set_eco_temperatures": "device",
     "set_schedule": "schedule",
     "set_schedule_mode": "shared",
+    "set_device_setting": "device",
 }
 
 

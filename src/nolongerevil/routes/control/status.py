@@ -89,6 +89,28 @@ def format_device_status(
         "has_leaf": device_values.get("leaf", False),
         "software_version": device_values.get("current_version"),
         "temperature_scale": device_values.get("temperature_scale", "C"),
+        # Capabilities (from device bucket, default True for heat/cool per Nest convention)
+        "capabilities": {
+            "can_heat": device_values.get("can_heat", True),
+            "can_cool": device_values.get("can_cool", True),
+            "has_fan": device_values.get("has_fan", False),
+            "has_emer_heat": device_values.get("has_emer_heat", False),
+            "has_humidifier": device_values.get("has_humidifier", False),
+            "has_dehumidifier": device_values.get("has_dehumidifier", False),
+        },
+        # Eco mode state (device bucket)
+        "eco_mode": device_values.get("eco", {}).get("mode") if isinstance(device_values.get("eco"), dict) else None,
+        # Time to target (device bucket)
+        "time_to_target": device_values.get("time_to_target"),
+        "time_to_target_training_status": device_values.get("time_to_target_training_status"),
+        # Safety (device bucket)
+        "safety_state": device_values.get("safety_state"),
+        "safety_temp_activating_hvac": device_values.get("safety_temp_activating_hvac"),
+        # Learning and preconditioning (device bucket)
+        "learning_mode": device_values.get("learning_mode"),
+        "preconditioning_enabled": device_values.get("preconditioning_enabled"),
+        # Backplate (device bucket)
+        "backplate_temperature": device_values.get("backplate_temperature"),
     }
 
     # Add shared/structure info

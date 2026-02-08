@@ -675,8 +675,8 @@ class MqttIntegration(BaseIntegration):
                 retain=True,
             )
 
-        # Compressor lockout timeout (from shared values)
-        compressor_lockout = shared_values.get("compressor_lockout_timeout")
+        # Compressor lockout timeout (from device bucket, not shared)
+        compressor_lockout = device_values.get("compressor_lockout_timeout")
         if compressor_lockout is not None:
             await client.publish(
                 f"{prefix}/{serial}/ha/compressor_lockout_timeout",
