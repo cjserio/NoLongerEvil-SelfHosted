@@ -129,9 +129,7 @@ class SubscriptionManager:
             if not device_subs and subscription.serial in self._long_poll_subscriptions:
                 del self._long_poll_subscriptions[subscription.serial]
 
-    async def store_pending_push(
-        self, serial: str, objects: list[dict[str, Any]]
-    ) -> None:
+    async def store_pending_push(self, serial: str, objects: list[dict[str, Any]]) -> None:
         """Buffer objects that failed delivery due to a broken connection.
 
         The next call to add_long_poll_subscription for this serial will

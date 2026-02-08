@@ -597,7 +597,11 @@ async def handle_transport_subscribe(request: web.Request) -> web.StreamResponse
                 structure_obj = state_service.get_object(serial, structure_key)
                 if structure_obj:
                     client_structure = next(
-                        (o for o in processed_client_objects if o.get("object_key") == structure_key),
+                        (
+                            o
+                            for o in processed_client_objects
+                            if o.get("object_key") == structure_key
+                        ),
                         None,
                     )
                     client_struct_ts = (
