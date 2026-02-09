@@ -864,7 +864,15 @@ async def handle_transport_put(request: web.Request) -> web.Response:
             if values_changed
             else (server_obj.object_revision if server_obj else 0)
         )
-        new_timestamp = int(time.time() * 1000)
+        # Only bump timestamp when values actually changed. Duplicate PUTs with
+        # identical values would advance the server timestamp while the device
+        # tracks the older timestamp, causing a spurious full-bucket push on the
+        # next subscribe that can override the device's local schedule.
+        new_timestamp = (
+            int(time.time() * 1000)
+            if values_changed
+            else (server_obj.object_timestamp if server_obj else int(time.time() * 1000))
+        )
 
         # Save update
         new_obj = DeviceObject(
