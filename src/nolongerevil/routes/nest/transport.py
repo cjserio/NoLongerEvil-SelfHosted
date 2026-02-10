@@ -903,16 +903,13 @@ async def handle_transport_put(request: web.Request) -> web.Response:
             await state_service.storage.update_user_away_status(device_owner.user_id)
             await state_service.storage.sync_user_weather_from_device(device_owner.user_id)
 
-    # Notify subscribers (pushes to long-poll held connections)
-    if response_objects:
-        notified = await subscription_manager.notify_subscribers_with_dicts(
-            serial, response_objects
-        )
-        logger.debug(
-            f"PUT: Notified {notified} subscriber(s) for {serial}, "
-            f"{len(response_objects)} object(s) updated"
-        )
-
+    # NOTE: Previously notified long-poll subscribers here with the full merged
+    # bucket after every PUT.  This was always redundant (the device already
+    # receives the same data in the PUT response) and created a race condition:
+    # if TCP delivery of the subscribe chunk was delayed even 1-2 seconds past a
+    # schedule transition, the stale target_temperature from the pre-schedule
+    # state would overwrite the schedule-set value.  Removed 2026-02-10.
+    #
     # NOTE: Previously piggybacked shared.{serial} on every PUT response as a
     # "reliable sync point."  This caused stale target_temperature values from
     # old user commands to be re-pushed to the device after server restarts or
