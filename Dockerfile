@@ -19,7 +19,7 @@ COPY src/ ./src/
 # Install dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
-
+    
 # Runtime stage
 FROM python:3.12-slim
 
@@ -32,17 +32,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copy application code
 COPY src/ ./src/
 
-# Create data directory
-RUN mkdir -p /app/data
-
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV SQLITE3_DB_PATH=/app/data/database.sqlite
-ENV DEBUG_LOGS_DIR=/app/data/debug-logs
 
-# Expose ports
-# 80/443: Device API (Nest protocol)
-# 8081: Control API (dashboard/automation)
 EXPOSE 80 443 8081
 
 # Health check
@@ -51,3 +43,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Run the server
 CMD ["python", "-m", "nolongerevil.main"]
+
